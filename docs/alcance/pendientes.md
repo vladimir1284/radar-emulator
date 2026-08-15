@@ -147,3 +147,33 @@ El Apéndice G asigna al 4051 —módulo de 16 entradas digitales— cuatro regi
 digital no tiene salidas analógicas. Con alta probabilidad es un error de copia en el manual,
 heredado de la tabla del 4024. La semilla **ignora esos registros**. Confirmar contra el
 hardware real antes de darlo por cerrado.
+
+### PEND-23 · `esquema.md` describía una forma que no es la de la semilla — RESUELTO
+
+Antes de que existiera código, `esquema.md` describía `signals` como diccionario clave-por-nombre
+y `meta`/`modbus`/`expressions` en la raíz. La semilla real (`config/rd100s.seed.json`, 116
+señales, existente desde antes de la reconstrucción de la documentación) usa `signals` como
+array de objetos con `id`, `kind` en vez de `io`, `modbus.unit_id` en vez de `unit`, y
+`transports.modbus_tcp`/`transports.encoder_udp` en vez de raíz. Se decidió que manda la
+semilla: `esquema.md` se reescribió para documentar la forma real, y `src/config/` valida
+contra ella. No hay migración pendiente de los datos.
+
+### PEND-24 · `blocks` absorbe `expressions`, D-06 describe una partición que no existe
+
+[D-06](decisiones.md#d-06-la-configuracion-es-json-en-tres-partes) describe `signals`, `blocks`
+y `expressions` como tres secciones separadas. La semilla real no tiene sección `expressions`:
+el enlace declarativo entre señales es un `type: "expression"` más dentro de `blocks`, junto a
+`state_machine`, `axis`, `latch`, `i2t`. D-06 no se ha revertido —AGENTS.md pide discutir antes
+de tocar una decisión— pero su premisa de partición en tres no describe el JSON real. Pendiente
+de decidir con el equipo: ¿se ajusta D-06 para reflejar que `expressions` es un `type` de
+`blocks`, o se migra la semilla para separar `expressions` como sección propia antes de fase 2
+(cuando el grafo de dependencias sí se evalúa)?
+
+### PEND-25 · El cuarto subsistema es `sys`, D-07 dice `env`
+
+[D-07](decisiones.md#d-07-los-subsistemas-son-espacios-de-nombres-no-tipos) enumera `tx`, `ant`,
+`rx` y `env` como los cuatro prefijos de subsistema. La semilla real usa `sys` (`subsystems: [
+{"id":"tx"}, {"id":"ant"}, {"id":"rx"}, {"id":"sys"} ]`, etiqueta "On/Off/Climate"), no `env`. No
+afecta al código —el validador comprueba que `signal.subsystem` exista en `subsystems[]`, sea
+cual sea el nombre— pero la documentación y el código deben usar el mismo nombre. Confirmar cuál
+es el correcto y corregir el otro lado.

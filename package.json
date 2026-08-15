@@ -8,7 +8,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "smoke:modbus": "tsx scripts/smoke-modbus.ts"
   },
   "license": "UNLICENSED",
   "devEngines": {
