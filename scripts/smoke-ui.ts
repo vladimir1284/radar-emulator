@@ -86,6 +86,36 @@ async function main() {
     assert(countersAfter.startsWith("0 señal"), `liberar todas no dejo el contador en 0: "${countersAfter}"`);
     console.log("liberar todas: OK");
 
+    // --- corte de propagacion por señal (fase 2) ---
+    await firstRow.locator("button", { hasText: "cortar prop." }).click();
+    await page.waitForTimeout(300);
+    const cutClass = await firstRow.getAttribute("class");
+    assert(cutClass?.includes("propagation-cut"), `fila no quedo marcada "propagation-cut": ${cutClass}`);
+    const countersCut = await page.locator("#counters").innerText();
+    assert(countersCut.includes("1 sin propagación"), `contador no reflejo el corte: "${countersCut}"`);
+    const cutEventText = await page.locator("#event-log").innerText();
+    assert(cutEventText.includes("propagation_cut"), "event-log no muestra propagation_cut");
+    await firstRow.locator("button", { hasText: "restituir prop." }).click();
+    await page.waitForTimeout(300);
+    const countersRestored = await page.locator("#counters").innerText();
+    assert(countersRestored.includes("0 sin propagación"), `contador no reflejo la restitucion: "${countersRestored}"`);
+    console.log("corte y restitucion de propagacion por señal: OK");
+
+    // --- panel de degradaciones UDP (fase 2) ---
+    await page.fill("#degrade-loss", "0.5");
+    await page.click('[data-degrade-apply="loss"]');
+    await page.click("#degrade-silence-toggle");
+    await page.waitForTimeout(1200); // esperar el "metrics" (1Hz) que confirma el estado
+    const silenceBtnText = await page.locator("#degrade-silence-toggle").innerText();
+    assert(silenceBtnText === "desactivar", `boton de silencio deberia reflejar activo, dice "${silenceBtnText}"`);
+    const silenceBtnClass = await page.locator("#degrade-silence-toggle").getAttribute("class");
+    assert(silenceBtnClass?.includes("active"), "boton de silencio deberia tener clase active");
+    await page.click("#degrade-silence-toggle");
+    await page.waitForTimeout(1200);
+    const silenceBtnTextOff = await page.locator("#degrade-silence-toggle").innerText();
+    assert(silenceBtnTextOff === "activar", `boton de silencio deberia volver a "activar", dice "${silenceBtnTextOff}"`);
+    console.log("panel de degradaciones UDP (silencio total, refleja estado real del servidor): OK");
+
     assert(consoleErrors.length === 0, `errores de consola/pagina: ${consoleErrors.join(" | ")}`);
     console.log("sin errores de consola: OK");
 

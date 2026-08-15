@@ -50,6 +50,7 @@ function handleMessage(msg) {
     case "metrics":
       document.getElementById("link-metrics").textContent =
         `${msg.modbus_tx_per_s} transacciones Modbus/s · desviacion de tick ${msg.tick_deviation_ms} ms`;
+      if (msg.degradation) renderDegradationPanel(msg.degradation);
       break;
   }
 }
@@ -145,6 +146,21 @@ function renderSignalRow(def) {
   releaseBtn.textContent = "liberar";
   releaseBtn.onclick = () => send({ type: "release", actor: actor(), signal: def.id });
   controls.appendChild(releaseBtn);
+
+  // Corte de propagacion (docs/arquitectura/senales-modos.md#cortar-la-propagacion-es-una-capacidad-no-un-fallo):
+  // deja el valor mostrado cambiar pero congela lo que ven los bloques/expresiones
+  // que consumen esta señal.
+  const propagationBtn = document.createElement("button");
+  propagationBtn.className = "propagation-btn";
+  propagationBtn.title = "Corta o restituye la propagacion de esta señal hacia el modelo (fase 2)";
+  propagationBtn.textContent = "cortar prop.";
+  propagationBtn.onclick = () => {
+    const current = latestState.signals[def.id];
+    const cut = Boolean(current && current.c);
+    send({ type: "propagation", actor: actor(), signal: def.id, cut: !cut });
+  };
+  controls.appendChild(propagationBtn);
+
   row.appendChild(controls);
 
   return row;
@@ -153,12 +169,15 @@ function renderSignalRow(def) {
 function renderSignalValues() {
   let forcedCount = 0;
   let anomalousCount = 0;
+  let cutCount = 0;
   for (const [id, reading] of Object.entries(latestState.signals ?? {})) {
     const row = document.querySelector(`.signal-row[data-signal-id="${CSS.escape(id)}"]`);
     if (!row) continue;
     row.classList.toggle("forced", reading.m === "forced");
+    row.classList.toggle("propagation-cut", Boolean(reading.c));
     if (reading.m === "forced") forcedCount += 1;
     if (reading.q !== "ok") anomalousCount += 1;
+    if (reading.c) cutCount += 1;
 
     row.querySelector(".value-cell").textContent =
       typeof reading.v === "number" ? reading.v.toFixed(3) : String(reading.v);
@@ -178,9 +197,15 @@ function renderSignalValues() {
       qBadge.textContent = reading.q;
       qualityCell.appendChild(qBadge);
     }
+
+    const propagationBtn = row.querySelector(".propagation-btn");
+    if (propagationBtn) {
+      propagationBtn.textContent = reading.c ? "restituir prop." : "cortar prop.";
+      propagationBtn.classList.toggle("cut", Boolean(reading.c));
+    }
   }
   document.getElementById("counters").textContent =
-    `${forcedCount} señal(es) forzada(s) · ${anomalousCount} con calidad anómala`;
+    `${forcedCount} señal(es) forzada(s) · ${anomalousCount} con calidad anómala · ${cutCount} sin propagación`;
 }
 
 function appendEvent(evt) {
@@ -193,6 +218,37 @@ function appendEvent(evt) {
     `${evt.signal ?? ""} — ${evt.actor ?? ""} ` +
     `<span class="t">t=${evt.t_us}us</span>`;
   log.prepend(row);
+}
+
+// Panel de degradaciones UDP (interfaces/udp-encoder.md#6, docs/ui/operacion.md#control-del-stream-udp).
+// El estado mostrado es el que confirma el servidor por "metrics" (1Hz), no
+// lo que este cliente cree haber mandado: varios operadores comparten la
+// sesion (contexto.md#los-dos-usos-del-sistema).
+const TOGGLE_KEYS = { freeze: "frozen", encoder_invalid: "encoder_invalid", silence: "silent" };
+
+function renderDegradationPanel(d) {
+  for (const [kind, key] of Object.entries(TOGGLE_KEYS)) {
+    const btn = document.getElementById(`degrade-${kind}-toggle`);
+    const active = Boolean(d[key]);
+    btn.textContent = active ? "desactivar" : "activar";
+    btn.classList.toggle("active", active);
+  }
+}
+
+for (const btn of document.querySelectorAll("[data-degrade-apply]")) {
+  btn.addEventListener("click", () => {
+    const kind = btn.dataset.degradeApply;
+    const input = document.getElementById(`degrade-${kind}`);
+    send({ type: "degrade", actor: actor(), kind, value: Number(input.value) });
+  });
+}
+
+for (const btn of document.querySelectorAll("[data-degrade-toggle]")) {
+  btn.addEventListener("click", () => {
+    const kind = btn.dataset.degradeToggle;
+    const active = btn.classList.contains("active");
+    send({ type: "degrade", actor: actor(), kind, active: !active });
+  });
 }
 
 document.getElementById("filter-input").addEventListener("input", renderSignalList);

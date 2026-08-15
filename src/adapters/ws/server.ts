@@ -153,11 +153,24 @@ export function startWsServer(
   }, 100);
 
   const metricsTimer = setInterval(() => {
+    const d = udpEmitter.degradation;
     broadcast({
       type: "metrics",
       t_us: nowMonotonicUs(),
       modbus_tx_per_s: modbusMetrics.takeAndReset(),
       tick_deviation_ms: Number(tickLoop.lastDeviationMs().toFixed(2)),
+      // Estado real del servidor, no lo que el cliente cree haber mandado:
+      // la demo comparte sesion entre varios operadores (contexto.md).
+      degradation: {
+        loss_probability: d.lossProbability,
+        burst_active: d.burstUntilUs !== null,
+        duplicate_probability: d.duplicateProbability,
+        reorder_window_ms: d.reorderWindowMs,
+        jitter_max_ms: d.jitterMaxMs,
+        frozen: d.frozen,
+        encoder_invalid: d.encoderInvalid,
+        silent: d.silent,
+      },
     });
   }, 1000);
 

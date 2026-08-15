@@ -27,10 +27,58 @@
       <div id="signal-list"></div>
     </section>
 
-    <section id="events-panel">
-      <h2>Registro de eventos</h2>
-      <div id="event-log"></div>
-    </section>
+    <aside id="sidebar">
+      <section id="events-panel">
+        <h2>Registro de eventos</h2>
+        <div id="event-log"></div>
+      </section>
+
+      <section id="degradation-panel">
+        <h2>Degradaciones UDP (RD100S-ENC-UDP)</h2>
+        <div class="degrade-row">
+          <label>Pérdida</label>
+          <input id="degrade-loss" type="number" min="0" max="1" step="0.05" value="0" />
+          <button data-degrade-apply="loss">aplicar</button>
+        </div>
+        <div class="degrade-row">
+          <label>Ráfaga (ms)</label>
+          <input id="degrade-burst" type="number" min="0" step="50" value="1000" />
+          <button data-degrade-apply="burst">activar</button>
+        </div>
+        <div class="degrade-row">
+          <label>Duplicación</label>
+          <input id="degrade-duplicate" type="number" min="0" max="1" step="0.05" value="0" />
+          <button data-degrade-apply="duplicate">aplicar</button>
+        </div>
+        <div class="degrade-row">
+          <label>Reordenamiento (ms)</label>
+          <input id="degrade-reorder" type="number" min="0" step="10" value="0" />
+          <button data-degrade-apply="reorder">aplicar</button>
+        </div>
+        <div class="degrade-row">
+          <label>Jitter (ms)</label>
+          <input id="degrade-jitter" type="number" min="0" step="5" value="0" />
+          <button data-degrade-apply="jitter">aplicar</button>
+        </div>
+        <div class="degrade-row">
+          <label>Congelación</label>
+          <button id="degrade-freeze-toggle" data-degrade-toggle="freeze">activar</button>
+        </div>
+        <div class="degrade-row">
+          <label>Encoder inválido</label>
+          <button id="degrade-encoder_invalid-toggle" data-degrade-toggle="encoder_invalid">activar</button>
+        </div>
+        <div class="degrade-row">
+          <label>Salto de secuencia</label>
+          <input id="degrade-seq_jump" type="number" step="1" value="1000" />
+          <button data-degrade-apply="seq_jump">aplicar</button>
+        </div>
+        <div class="degrade-row">
+          <label>Silencio total</label>
+          <button id="degrade-silence-toggle" data-degrade-toggle="silence">activar</button>
+        </div>
+      </section>
+    </aside>
   </main>
 
   <script src="/app.js"></script>
