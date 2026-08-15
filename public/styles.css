@@ -95,7 +95,7 @@ main {
 
 .signal-row {
   display: grid;
-  grid-template-columns: 1fr 90px 90px 90px 140px;
+  grid-template-columns: 1fr 70px 70px 70px auto;
   align-items: center;
   gap: 0.5rem;
   padding: 0.35rem 0.6rem;

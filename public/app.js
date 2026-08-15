@@ -119,7 +119,7 @@ function renderSignalRow(def) {
   controls.className = "force-controls";
   if (def.type === "bool") {
     const btn = document.createElement("button");
-    btn.textContent = "forzar/alternar";
+    btn.textContent = "alternar";
     btn.onclick = () => {
       const current = latestState.signals[def.id];
       send({ type: "force", actor: actor(), signal: def.id, value: !(current && current.v) });

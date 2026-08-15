@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "smoke:modbus": "tsx scripts/smoke-modbus.ts",
     "smoke:ws": "tsx scripts/smoke-ws.ts",
-    "smoke:reload": "tsx scripts/smoke-reload.ts"
+    "smoke:reload": "tsx scripts/smoke-reload.ts",
+    "smoke:ui": "tsx scripts/smoke-ui.ts"
   },
   "license": "UNLICENSED",
   "devEngines": {
@@ -35,6 +36,7 @@
     "eslint": "^10.8.1",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
+    "playwright": "^1.62.1",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0"
