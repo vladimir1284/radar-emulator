@@ -1,0 +1,69 @@
+site_name: Emulador RD100S
+site_description: Banco de pruebas software para el controlador del radar meteorológico RD100S
+docs_dir: docs
+
+theme:
+  name: material
+  language: es
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Modo oscuro
+    - scheme: slate
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Modo claro
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+  - attr_list
+
+nav:
+  - Inicio: index.md
+  - Alcance:
+      - Contexto: alcance/contexto.md
+      - Decisiones de diseño: alcance/decisiones.md
+      - Pendientes: alcance/pendientes.md
+  - Arquitectura:
+      - Despliegue: arquitectura/despliegue.md
+      - Núcleo de simulación: arquitectura/nucleo.md
+      - Modos de señal: arquitectura/senales-modos.md
+  - Configuración:
+      - Esquema JSON: configuracion/esquema.md
+      - Biblioteca de bloques: configuracion/bloques.md
+      - Semilla RD100S: configuracion/semilla-rd100s.md
+  - Interfaces:
+      - Modbus TCP: interfaces/modbus.md
+      - UDP de encoder (normativo): interfaces/udp-encoder.md
+      - WebSocket: interfaces/websocket.md
+  - Interfaz de usuario:
+      - Editor de configuración: ui/editor.md
+      - Panel de operación: ui/operacion.md
+  - Implementación:
+      - Stack tecnológico: implementacion/stack.md
+      - Fases: implementacion/fases.md
+      - Observabilidad: implementacion/observabilidad.md
