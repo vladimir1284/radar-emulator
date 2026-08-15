@@ -1,0 +1,148 @@
+# Pendientes
+
+!!! danger "Leer antes de tomar cualquier valor como bueno"
+    Buena parte de las magnitudes físicas y de los campos de protocolo de esta documentación
+    están **inventados como marcador de posición**, por decisión explícita, para desbloquear la
+    implementación. Están todos aquí. Ninguno debe llegar a una prueba formal sin confirmarse.
+
+Cada pendiente lleva identificador estable para poder referenciarlo desde el código y desde
+los tickets. La convención en el código fuente es un comentario `// PEND-nn` en el punto donde
+el valor provisional se usa.
+
+## Bloqueantes para pruebas formales
+
+Estos afectan a contratos con software ajeno al proyecto. Un error aquí no se detecta como
+fallo del emulador, sino como fallo aparente del controlador.
+
+### PEND-01 · Escala de azimut y elevación
+
+Se ha fijado **milésimas de grado** (`i32`, 1 unidad = 0,001°). Azimut en `0..359999` con
+envolvente, elevación en `-90000..+90000`.
+
+Verificar contra la resolución real del encoder. Si el encoder es de 14 bits, su resolución
+nativa es de unos 0,022°, y una escala en milésimas sobredimensiona sin aportar; si es de
+19 bits o superior, se queda corta. Lo correcto es alinear la escala con la resolución del
+dispositivo, no con un número redondo en decimal.
+
+### PEND-02 · Unidad y origen de la marca de tiempo
+
+Se ha fijado `u64` en **microsegundos desde el arranque del emisor**, reloj monótono.
+
+Verificar que el contador de hardware de la FPGA puede producir esa magnitud sin coste
+excesivo, y que el controlador calcula sus deltas en la misma unidad. Si el contador nativo de
+la FPGA tiene otra frecuencia, es preferible declarar esa frecuencia en la especificación
+antes que obligar a la FPGA a convertir en cada paquete.
+
+!!! warning "Nunca hora de pared"
+    En el emulador la marca de tiempo debe salir del reloj monótono del proceso, jamás de la
+    hora del sistema. Un ajuste NTP en el nodo Swarm haría saltar los timestamps hacia atrás en
+    mitad de una prueba y corrompería la traza.
+
+### PEND-03 · Cadencia nominal del stream
+
+Se han fijado **100 Hz** (10 ms) con tolerancia de jitter de ±2 ms.
+
+Verificar contra la frecuencia del lazo de posición del controlador. Si el lazo corre a 20 Hz,
+100 Hz es desperdicio; si necesita 200 Hz, hay que revisar D-10 y el coste en la FPGA.
+
+### PEND-04 · Palabra de estado del paquete
+
+Los ocho bits definidos en la [especificación UDP](../interfaces/udp-encoder.md) son una
+propuesta razonada, no un requisito recogido del sistema real. Falta confirmar con el equipo
+de FPGA qué condiciones de error puede realmente detectar y señalar el hardware, y con el
+equipo de controlador qué bits va a consumir. Los bits que nadie produce ni consume deben
+eliminarse antes de congelar la versión 1.
+
+### PEND-05 · CRC en el paquete
+
+Decidido **no incluir CRC**, delegando en el checksum de UDP. Confirmar que el equipo de FPGA
+no requiere verificación adicional por política de integridad. Añadirlo después obliga a
+versionar el protocolo.
+
+### PEND-06 · Codificación y escalado de las señales analógicas
+
+El Apéndice G del manual ADAM-4000 lista los registros de valor pero **no especifica la
+conversión a unidades de ingeniería**, que depende del *Type Code* configurado en cada canal
+(registros `40201` y siguientes). Sin ese dato no se sabe si un canal entrega entero sin signo
+en `0..65535`, entero con signo, o complemento a dos escalado sobre el rango del tipo.
+
+La semilla asume `int16` con rango crudo `0..65535` para señales unipolares y `-32768..32767`
+para bipolares, y rangos de ingeniería inventados. **Todos los rangos de ingeniería de la
+semilla son invención.** Se necesita, para cada canal analógico, el Type Code real y el rango
+físico que representa.
+
+### PEND-07 · Mapa Modbus de los módulos 4069, 4117 y 4150
+
+El Apéndice G aportado **no cubre estos tres módulos**. Sus direcciones en la semilla se han
+inferido por analogía con módulos de la misma familia y función. Detalle en
+[Mapa Modbus](../interfaces/modbus.md#modulos-no-cubiertos-por-el-apendice-g).
+
+### PEND-08 · Unit IDs reales del gateway
+
+La asignación de un unit ID por módulo físico es correcta como modelo, pero los **números
+concretos** de la semilla son arbitrarios. Deben coincidir con las direcciones RS-485
+configuradas en los módulos reales, o con el mapeo que aplique el gateway.
+
+## Parámetros del modelo físico
+
+Menos críticos que los anteriores porque son configurables por el usuario desde la interfaz y
+un error solo produce un radar poco realista, no un fallo de comunicación.
+
+### PEND-10 · Tiempo de caldeo del magnetrón
+
+Fijado en **180 s**. Es un orden de magnitud típico en magnetrones de radar meteorológico,
+pero es inferencia y hay que contrastarlo con la hoja de datos del tubo del RD100S.
+
+### PEND-11 · Retardos de arranque de MPS y FPS
+
+Fijado en **1500 ms** desde el comando hasta que ambas fuentes reportan encendido. Sin
+respaldo documental.
+
+### PEND-12 · Condiciones exactas que bloquean el HV
+
+La semilla incluye en la cadena de interlock: interlock físico, presión de guía de onda,
+soplador de la cabina, soplador del magnetrón, secuencia de fases y ciclo de trabajo. Falta
+confirmar la lista real y si alguna condición es de bloqueo o solo de aviso.
+
+### PEND-13 · El radomo en la cadena de interlock
+
+La semilla hace que `Radome Closed Status` participe en `tx.interlock_ok_status`. Es una
+suposición sobre el diseño del RD100S que puede ser falsa.
+
+### PEND-14 · Umbral de sobrecorriente pico de magnetrón
+
+Fijado en **55 A** sobre un fondo de escala inventado de 60 A. Sin respaldo.
+
+### PEND-15 · Ganancias, aceleraciones y modelo de corriente de los ejes
+
+Todos los coeficientes de `ant.az_axis` y `ant.el_axis` —ganancia voltios a grados por segundo,
+aceleración máxima, corriente estática y corriente por unidad de aceleración— son invención
+plausible. Requieren los datos de los variadores y motores reales.
+
+### PEND-16 · Recorrido y finales de carrera de elevación
+
+Fijado un recorrido de `-2°` a `+92°` con conmutación de finales de carrera a `-1,5°` y
+`+91,5°`. Sin respaldo.
+
+## Cuestiones abiertas de diseño
+
+### PEND-20 · Ciclo de interrogación y timeout del controlador
+
+Desconocido. Es el único dato que podría obligar a bajar el tick por debajo de 50 ms. Con
+ciclos de 200 ms o más, todo el diseño va holgado. Se ha decidido **no bajar de 50 ms** salvo
+que este dato lo imponga.
+
+### PEND-21 · Verificación de la librería servidor Modbus
+
+`jsmodbus` y `modbus-serial` anuncian modo servidor, pero **no está verificado** cuál soporta
+correctamente múltiples unit IDs sobre una sola conexión TCP, que es un requisito duro de este
+diseño. Debe resolverse con una prueba de concepto antes de comprometerse, y es lo primero de
+la fase 1.
+
+### PEND-22 · Anomalía documental en el ADAM-4051
+
+El Apéndice G asigna al 4051 —módulo de 16 entradas digitales— cuatro registros `4X` en
+`40001..40004` etiquetados *Current Output Value R/W*. Un módulo exclusivamente de entrada
+digital no tiene salidas analógicas. Con alta probabilidad es un error de copia en el manual,
+heredado de la tabla del 4024. La semilla **ignora esos registros**. Confirmar contra el
+hardware real antes de darlo por cerrado.
