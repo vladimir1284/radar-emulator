@@ -252,3 +252,45 @@ físico entero. Aislada en el borde, es un cambio de una línea de configuració
 
 **Consecuencia.** La interfaz muestra siempre unidades de ingeniería. El valor crudo se muestra
 solo como dato de diagnóstico junto al registro.
+
+---
+
+## D-17 · Servidor Modbus TCP sobre `modbus-serial`, no `jsmodbus`
+
+**Decisión.** El adaptador Modbus se implementa sobre `modbus-serial` (`ServerTCP`), con
+`options.unitID` sin fijar (queda en 255, "escucha todas las direcciones") y el enrutado por
+módulo resuelto a mano dentro del `vector` de callbacks, indexando por el `unitID` que
+`modbus-serial` pasa como argumento a cada `get*`/`set*`.
+
+**Por qué.** Resultado de la prueba de concepto de la fase 0
+([PEND-21](pendientes.md#pend-21-verificacion-de-la-libreria-servidor-modbus)):
+
+- `jsmodbus` (4.0.10) **no sirve**. Su `ModbusServer` mantiene un único juego de buffers
+  (`coils`/`discrete`/`holding`/`input`) por instancia, y `ModbusServerResponseHandler` nunca lee
+  `request.unitId` al construir la respuesta: todas las unit IDs comparten el mismo buffer.
+  Verificado escribiendo por unit 2 y leyendo por unit 1 sobre la misma conexión: el valor
+  escrito por unit 2 aparece leído desde unit 1. La única vía para que jsmodbus discrimine por
+  unit ID es dejar los cuatro buffers de opciones sin definir y reconstruir a mano, por evento,
+  toda la lógica de construcción de respuesta (incluida la de excepciones) usando clases internas
+  no pensadas para consumo público. Eso es más trabajo que escribir el servidor sobre
+  `node:net`, no menos.
+- `modbus-serial` (8.0.25) **sí sirve**, y cumple los tres puntos adicionales del criterio de
+  salida: excepción Modbus ante `FC05` sobre una coil de solo lectura (lanzando
+  `{ modbusErrorCode: 0x01 }` desde `setCoil`), e instante de recepción con resolución de
+  microsegundos vía `process.hrtime.bigint()` capturado dentro del `vector`.
+
+**Consecuencia.** El `vector` de `modbus-serial` es el único lugar del adaptador donde vive el
+mapeo unit ID → módulo → dirección. No hay biblioteca que lo resuelva por nosotros; el mapa
+completo (`docs/interfaces/modbus.md`) se traduce a ese `vector` a mano.
+
+!!! note "Latencia de captura, no falta de resolución"
+    `modbus-serial` difiere el parseo de cada trama con `setTimeout(fn, 0)`, así que el instante
+    capturado dentro del `vector` no es el instante exacto de llegada al socket, sino ese
+    instante más el jitter del event loop (medido: ~0,6-2,2 ms en la prueba de concepto, sin
+    carga). La resolución del reloj (`process.hrtime.bigint()`, nanosegundos) no es el problema;
+    si algún día se necesita el instante exacto de llegada, hay que interceptar el evento `data`
+    del `net.Server` interno de `modbus-serial`, no está expuesto hoy.
+
+**Descartado.** `jsmodbus`, y también reimplementar el servidor a mano sobre `node:net` — sigue
+siendo la alternativa de reserva si `modbus-serial` mostrara un problema no detectado en esta
+prueba de concepto (deliberadamente acotada, ver el spike en `spike-fase0/`).

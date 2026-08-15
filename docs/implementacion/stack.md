@@ -6,7 +6,7 @@
 |---|---|---|
 | Lenguaje | TypeScript, un solo proyecto | firme ([D-04](../alcance/decisiones.md#d-04-el-nucleo-se-escribe-en-typescript)) |
 | Runtime | Node LTS | firme |
-| Servidor Modbus | `jsmodbus` o `modbus-serial` | **sin verificar** ([PEND-21](../alcance/pendientes.md#pend-21-verificacion-de-la-libreria-servidor-modbus)) |
+| Servidor Modbus | `modbus-serial` (`ServerTCP`) | firme, verificado en fase 0 ([D-17](../alcance/decisiones.md#d-17-servidor-modbus-tcp-sobre-modbus-serial-no-jsmodbus)) |
 | UDP | `node:dgram` | firme, sin dependencia |
 | WebSocket | `ws` | firme |
 | Registro de eventos | SQLite con `better-sqlite3`, modo WAL | firme |
@@ -22,23 +22,21 @@ Node ([D-01](../alcance/decisiones.md#d-01-nucleo-y-adaptador-modbus-en-el-mismo
 salto de red entre el adaptador Modbus y el núcleo añadiría jitter que no existe en el radar
 real, y el banco existe para medir jitter.
 
-## El riesgo técnico principal
+## El riesgo técnico principal — resuelto en fase 0
 
-!!! danger "Múltiples unit IDs sobre una sola conexión TCP"
+!!! success "Múltiples unit IDs sobre una sola conexión TCP"
     El diseño exige que el servidor atienda **diez unit IDs sobre la misma conexión TCP**,
     porque las direcciones de los módulos ADAM colisionan entre sí y la resolución es un unit ID
     por módulo físico ([Modbus TCP](../interfaces/modbus.md#las-direcciones-colisionan-entre-modulos)).
-    
-    `jsmodbus` y `modbus-serial` anuncian modo servidor, pero **no está verificado** que ninguna
-    de las dos lo soporte correctamente. Es un requisito duro: si ninguna lo cumple, hay que
-    implementar el servidor Modbus TCP a mano sobre `node:net`, lo cual es viable —el
-    subconjunto de códigos de función es pequeño— pero cambia la estimación de la fase 1.
-    
-    **Es lo primero que hay que probar, antes de escribir cualquier otra cosa.**
 
-Además del multi-unit, la prueba de concepto debe verificar dos cosas más de la librería
-candidata: que permite responder **excepción** ante una escritura sobre una coil de solo lectura,
-y que expone el instante de recepción de cada trama con resolución suficiente para el registro.
+    Prueba de concepto de la fase 0: `jsmodbus` **no lo soporta** (buffer único compartido entre
+    unit IDs, sin importar `request.unitId`). `modbus-serial` **sí**, dejando `options.unitID`
+    sin fijar y enrutando a mano por el `unitID` que la librería pasa a cada callback del
+    `vector`. También expone excepción Modbus ante `FC05` sobre coil de solo lectura, y el
+    `vector` puede capturar el instante de recepción con `process.hrtime.bigint()` (resolución
+    de nanosegundos; el jitter del `setTimeout(0)` interno de la librería añade ~0,6-2,2 ms de
+    latencia hasta la captura, medido sin carga). Detalle completo en
+    [D-17](../alcance/decisiones.md#d-17-servidor-modbus-tcp-sobre-modbus-serial-no-jsmodbus).
 
 ## Códigos de función a implementar
 

@@ -132,12 +132,13 @@ Desconocido. Es el único dato que podría obligar a bajar el tick por debajo de
 ciclos de 200 ms o más, todo el diseño va holgado. Se ha decidido **no bajar de 50 ms** salvo
 que este dato lo imponga.
 
-### PEND-21 · Verificación de la librería servidor Modbus
+### PEND-21 · Verificación de la librería servidor Modbus — RESUELTO en fase 0
 
-`jsmodbus` y `modbus-serial` anuncian modo servidor, pero **no está verificado** cuál soporta
-correctamente múltiples unit IDs sobre una sola conexión TCP, que es un requisito duro de este
-diseño. Debe resolverse con una prueba de concepto antes de comprometerse, y es lo primero de
-la fase 1.
+`jsmodbus` **no soporta** multi-unit ID sobre una sola conexión (buffers compartidos entre unit
+IDs, verificado). `modbus-serial` **sí**, enrutando a mano por `unitID` dentro del `vector` de
+callbacks. También cumple excepción ante `FC05` sobre coil de solo lectura y timestamp de
+recepción con resolución de microsegundos. Detalle y prueba de concepto en
+[D-17](decisiones.md#d-17-servidor-modbus-tcp-sobre-modbus-serial-no-jsmodbus).
 
 ### PEND-22 · Anomalía documental en el ADAM-4051
 
