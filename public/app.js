@@ -14,6 +14,7 @@ function actor() {
 
 let signalDefs = [];
 let latestState = { signals: {} };
+let lastSessionId = null;
 let ws;
 
 function connect() {
@@ -30,6 +31,14 @@ function handleMessage(msg) {
     case "session":
       document.getElementById("session-info").textContent =
         `sesion ${msg.id.slice(0, 8)} · hash ${msg.config_hash.slice(0, 10)} · tick ${msg.tick_ms}ms · ${msg.connected} operador(es) conectado(s)`;
+      // Sesion nueva (reconexion tras una recarga): la lista de señales
+      // puede haber cambiado entera, y el registro de eventos es de otra
+      // sesion (docs/ui/editor.md#la-recarga-arranca-sesion-nueva).
+      if (msg.id !== lastSessionId) {
+        lastSessionId = msg.id;
+        document.getElementById("event-log").innerHTML = "";
+        loadSignalDefs();
+      }
       break;
     case "state":
       latestState = msg;
@@ -196,6 +205,22 @@ document.getElementById("release-all-btn").addEventListener("click", () => {
 
 document.getElementById("download-btn").addEventListener("click", () => {
   window.location.href = "/api/session/export";
+});
+
+document.getElementById("reload-btn").addEventListener("click", async () => {
+  if (!confirm("Recargar arranca una sesion nueva: los eventos de la sesion actual quedan cerrados. Continuar?")) {
+    return;
+  }
+  const res = await fetch("/api/config/reload", { method: "POST" });
+  const body = await res.json();
+  if (!body.ok) {
+    alert(`Recarga rechazada: ${body.error}`);
+    return;
+  }
+  // El servidor reconstruyo store/servidor Modbus/WebSocket con la
+  // configuracion nueva: la conexion actual se cierra desde el otro lado.
+  // El listener de "close" ya maneja la reconexion y vuelve a pedir
+  // /api/config.
 });
 
 function send(message) {

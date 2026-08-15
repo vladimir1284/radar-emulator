@@ -12,24 +12,56 @@ const MIME: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
 };
 
+export interface RuntimeState {
+  config: RadarConfig;
+  configHash: string;
+}
+
+export type ReloadResult = { ok: true } | { ok: false; error: string };
+
+async function readBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf-8");
+}
+
 // SPA ligera servida por el mismo proceso (stack.md#eleccion). Sin
 // framework: el alcance de fase 1 (una pagina, un puñado de endpoints) no
-// lo justifica.
+// lo justifica. getState() en vez de config fijo: una recarga reemplaza el
+// runtime entero (docs/ui/editor.md#la-recarga-arranca-sesion-nueva).
 export function createHttpServer(
   publicDir: string,
   eventLog: EventLog,
-  config: RadarConfig,
-  configHash: string,
+  getState: () => RuntimeState,
+  reload: (configPath?: string) => Promise<ReloadResult>,
 ): Server {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
     // "Ver la configuracion cargada" + "ver el hash del JSON aplicado"
-    // (docs/ui/editor.md#lo-minimo-que-si-entra-en-la-fase-1). La recarga en
-    // caliente no esta implementada todavia.
-    if (url.pathname === "/api/config") {
+    // (docs/ui/editor.md#lo-minimo-que-si-entra-en-la-fase-1).
+    if (url.pathname === "/api/config" && req.method === "GET") {
+      const { config, configHash } = getState();
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({ ...config, config_hash: configHash }));
+      return;
+    }
+
+    // "Recargar configuracion desde fichero" (docs/ui/editor.md). Todo o
+    // nada: si el fichero no valida, el runtime en marcha no se toca.
+    if (url.pathname === "/api/config/reload" && req.method === "POST") {
+      let configPath: string | undefined;
+      try {
+        const body = await readBody(req);
+        if (body.trim()) configPath = (JSON.parse(body) as { path?: string }).path;
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, error: "cuerpo invalido" }));
+        return;
+      }
+      const result = await reload(configPath);
+      res.writeHead(result.ok ? 200 : 400, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(result));
       return;
     }
 

@@ -75,7 +75,8 @@ async function main() {
   if (!analogWritable) throw new Error("la semilla no tiene señales AO");
   const signalId = analogWritable.id;
 
-  const eventLog = new EventLog(DB_PATH, "smoke-test-hash", config.tick_ms);
+  const eventLog = new EventLog(DB_PATH);
+  eventLog.beginSession("smoke-test-hash", config.tick_ms);
   const store = new SignalStore(config);
   const tickLoop = startTickLoop(store, config.tick_ms);
   const metrics = new ModbusTransactionCounter();
@@ -83,8 +84,8 @@ async function main() {
   const httpServer = createHttpServer(
     new URL("../public", import.meta.url).pathname,
     eventLog,
-    config,
-    "smoke-test-hash",
+    () => ({ config, configHash: "smoke-test-hash" }),
+    async () => ({ ok: false, error: "reload no probado en este smoke test" }),
   );
   const wss = startWsServer(httpServer, config, store, eventLog, tickLoop, metrics);
 

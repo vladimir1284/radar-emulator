@@ -25,14 +25,16 @@ export interface SessionInfo {
 // SQLite en WAL, persistido antes de enviar por WebSocket
 // (docs/implementacion/observabilidad.md). "n" es monotono POR SESION, no
 // global: cada recarga de configuracion abre una sesion nueva
-// (docs/ui/editor.md#la-recarga-arranca-sesion-nueva).
+// (docs/ui/editor.md#la-recarga-arranca-sesion-nueva) via beginSession(),
+// sin reabrir el fichero SQLite.
 export class EventLog {
   private readonly db: Database.Database;
   private readonly insertEvent: Database.Statement;
-  private readonly session: SessionInfo;
+  private readonly insertSession: Database.Statement;
+  private session!: SessionInfo;
   private nextN = 1;
 
-  constructor(dbPath: string, configHash: string, tickMs: number) {
+  constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(`
@@ -56,21 +58,32 @@ export class EventLog {
       CREATE INDEX IF NOT EXISTS idx_events_sig ON events(session_id, signal, t_us);
     `);
 
+    this.insertSession = this.db.prepare(
+      "INSERT INTO sessions (id, config_hash, started_at_wall, tick_ms) VALUES (?, ?, ?, ?)",
+    );
+    this.insertEvent = this.db.prepare(
+      "INSERT INTO events (session_id, n, t_us, kind, signal, actor, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    );
+  }
+
+  // Abre una sesion: nueva fila en "sessions", "n" reiniciado a 1. Debe
+  // llamarse una vez antes de usar log()/getSince(), y de nuevo en cada
+  // recarga de configuracion (docs/ui/editor.md#la-recarga-arranca-sesion-nueva).
+  beginSession(configHash: string, tickMs: number): SessionInfo {
     this.session = {
       id: randomUUID(),
       configHash,
       startedAtWall: new Date().toISOString(),
       tickMs,
     };
-    this.db
-      .prepare(
-        "INSERT INTO sessions (id, config_hash, started_at_wall, tick_ms) VALUES (?, ?, ?, ?)",
-      )
-      .run(this.session.id, this.session.configHash, this.session.startedAtWall, this.session.tickMs);
-
-    this.insertEvent = this.db.prepare(
-      "INSERT INTO events (session_id, n, t_us, kind, signal, actor, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    this.nextN = 1;
+    this.insertSession.run(
+      this.session.id,
+      this.session.configHash,
+      this.session.startedAtWall,
+      this.session.tickMs,
     );
+    return this.session;
   }
 
   get sessionInfo(): SessionInfo {

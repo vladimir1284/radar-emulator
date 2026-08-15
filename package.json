@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",
     "lint": "eslint .",
     "smoke:modbus": "tsx scripts/smoke-modbus.ts",
-    "smoke:ws": "tsx scripts/smoke-ws.ts"
+    "smoke:ws": "tsx scripts/smoke-ws.ts",
+    "smoke:reload": "tsx scripts/smoke-reload.ts"
   },
   "license": "UNLICENSED",
   "devEngines": {

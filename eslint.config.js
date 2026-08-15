@@ -43,6 +43,8 @@ export default tseslint.config(
         WebSocket: "readonly",
         CSS: "readonly",
         setTimeout: "readonly",
+        confirm: "readonly",
+        alert: "readonly",
       },
     },
   },
