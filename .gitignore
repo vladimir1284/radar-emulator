@@ -3,3 +3,4 @@ site/
 .wrangler/
 node_modules/
 dist/
+data/

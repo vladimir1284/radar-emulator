@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>RD100S emu — panel de operación</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>RD100S emu</h1>
+    <div id="session-info" class="session-info">conectando…</div>
+    <div id="link-metrics" class="link-metrics"></div>
+  </header>
+
+  <section class="toolbar">
+    <label>Actor: <input id="actor-input" type="text" placeholder="tu nombre" /></label>
+    <span id="counters" class="counters"></span>
+    <button id="release-all-btn">Liberar todas</button>
+    <button id="download-btn">Descargar sesión</button>
+  </section>
+
+  <main>
+    <section id="signals-panel">
+      <h2>Señales</h2>
+      <input id="filter-input" type="text" placeholder="filtrar por nombre…" />
+      <div id="signal-list"></div>
+    </section>
+
+    <section id="events-panel">
+      <h2>Registro de eventos</h2>
+      <div id="event-log"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

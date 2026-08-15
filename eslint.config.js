@@ -30,6 +30,23 @@ export default tseslint.config(
     },
   },
   {
+    // public/ es JS de navegador servido tal cual (sin build step, ver
+    // stack.md#eleccion), no Node: sus globals son otros.
+    files: ["public/**/*.js"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        localStorage: "readonly",
+        location: "readonly",
+        fetch: "readonly",
+        WebSocket: "readonly",
+        CSS: "readonly",
+        setTimeout: "readonly",
+      },
+    },
+  },
+  {
     ignores: ["dist/", "node_modules/", "spike-fase0/"],
   },
 );

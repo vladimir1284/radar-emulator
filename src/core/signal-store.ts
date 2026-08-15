@@ -105,6 +105,8 @@ export class SignalStore extends EventEmitter {
     for (const [id, value] of this.pendingWrites) {
       const s = this.require(id);
       s.shadow = value;
+      // Se registra al aplicar, no al recibir el datagrama (observabilidad.md#registro-de-eventos).
+      this.emit("applied-write", { id, value, tick: this.tickCount });
     }
     this.pendingWrites.clear();
     this.emit("tick", this.tickCount);

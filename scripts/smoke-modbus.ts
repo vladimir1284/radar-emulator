@@ -1,13 +1,19 @@
-import ModbusRTU from "modbus-serial";
+import { createRequire } from "node:module";
+// El default export de modbus-serial no tipa bien bajo moduleResolution
+// NodeNext ("not constructable"); a diferencia de ajv no hay named export
+// alternativo. require() evita el problema; es un script de humo, no
+// codigo de produccion.
+const ModbusRTU = createRequire(import.meta.url)("modbus-serial");
 import { loadConfig } from "../src/config/load.js";
 import { SignalStore } from "../src/core/signal-store.js";
 import { startTickLoop } from "../src/core/tick-loop.js";
 import { startModbusServer } from "../src/adapters/modbus/server.js";
+import { ModbusTransactionCounter } from "../src/adapters/modbus/metrics.js";
 
 const config = loadConfig(new URL("../config/rd100s.seed.json", import.meta.url).pathname);
 const store = new SignalStore(config);
-const stopTick = startTickLoop(store, config.tick_ms);
-const server = startModbusServer(config, store);
+const tickLoop = startTickLoop(store, config.tick_ms);
+const server = startModbusServer(config, store, new ModbusTransactionCounter());
 
 server.on("initialized", async () => {
   const client = new ModbusRTU();
@@ -60,7 +66,7 @@ server.on("initialized", async () => {
     console.error("ERROR INESPERADO", e);
   } finally {
     client.close(() => {});
-    stopTick();
+    tickLoop.stop();
     server.close(() => process.exit(0));
   }
 });

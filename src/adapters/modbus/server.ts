@@ -3,6 +3,7 @@ import type { RadarConfig, SignalDef, ModbusSpace } from "../../config/types.js"
 import type { SignalStore } from "../../core/signal-store.js";
 import { ModbusMap } from "./map.js";
 import { rawWordToEngineering, engineeringToRawWord } from "./raw-conversion.js";
+import type { ModbusTransactionCounter } from "./metrics.js";
 
 const ILLEGAL_FUNCTION = 0x01;
 const ILLEGAL_DATA_ADDRESS = 0x02;
@@ -23,7 +24,11 @@ class ModbusException extends Error {
 // Enrutado por unit ID resuelto a mano (fase 0 / D-17): modbus-serial no lo
 // hace por nosotros. El `unitID` que pasa a cada callback del vector es la
 // unica fuente de verdad de a que modulo pertenece el pedido.
-export function createModbusVector(config: RadarConfig, store: SignalStore): IServiceVector {
+export function createModbusVector(
+  config: RadarConfig,
+  store: SignalStore,
+  metrics: ModbusTransactionCounter,
+): IServiceVector {
   const map = new ModbusMap(config);
 
   function findOrThrow(unitId: number, space: ModbusSpace, address: number): SignalDef {
@@ -45,20 +50,24 @@ export function createModbusVector(config: RadarConfig, store: SignalStore): ISe
 
   return {
     getCoil: (address: number, unitId: number) => {
+      metrics.increment();
       const signal = findOrThrow(unitId, "coil", address);
       return Boolean(store.read(signal.id).value);
     },
     setCoil: (address: number, value: boolean, unitId: number) => {
+      metrics.increment();
       const signal = findOrThrow(unitId, "coil", address);
       requireWritable(signal);
       store.writeFromController(signal.id, value);
     },
     getHoldingRegister: (address: number, unitId: number) => {
+      metrics.increment();
       const signal = findOrThrow(unitId, "holding", address);
       const reading = store.read(signal.id);
       return engineeringToRawWord(signal, reading.value as number);
     },
     setRegister: (address: number, word: number, unitId: number) => {
+      metrics.increment();
       const signal = findOrThrow(unitId, "holding", address);
       requireWritable(signal);
       store.writeFromController(signal.id, rawWordToEngineering(signal, word));
@@ -66,8 +75,12 @@ export function createModbusVector(config: RadarConfig, store: SignalStore): ISe
   };
 }
 
-export function startModbusServer(config: RadarConfig, store: SignalStore): ServerTCP {
-  const vector = createModbusVector(config, store);
+export function startModbusServer(
+  config: RadarConfig,
+  store: SignalStore,
+  metrics: ModbusTransactionCounter,
+): ServerTCP {
+  const vector = createModbusVector(config, store, metrics);
   const { bind, port } = config.transports.modbus_tcp;
   // options.unitID sin fijar: por defecto modbus-serial escucha las 255
   // direcciones y deja el filtrado en manos del vector (D-17).
