@@ -230,3 +230,25 @@ Recomendaciones para el equipo de controlador, no exigencias.
 
 Las señales de origen son configurables por diseño: permiten alimentar el stream desde
 cualquier señal, incluida una forzada manualmente por el operador, sin tocar código.
+
+También acepta `az_fault_signal`/`el_fault_signal` opcionales (fase 2, fuera de esta
+especificación normativa) que determinan `AZ_FAULT`/`EL_FAULT`. Ver
+[esquema.md](../configuracion/esquema.md#transportsencoder_udp).
+
+## 9. Notas de implementación (fase 2, `src/adapters/udp/encoder.ts`)
+
+!!! note "Simplificaciones deliberadas, no parte del contrato normativo"
+    Lo que sigue es cómo se implementó el emisor del emulador, no una extensión del formato de
+    paquete de las secciones 1 a 5. Un receptor conforme a la especificación no necesita saber
+    nada de esto.
+
+- **`AZ_REF_OK`/`EL_REF_OK` siempre en 1.** Todavía no hay ninguna señal ni bloque que modele
+  "eje referenciado/homing". Cuando exista, estos bits deben leerla en vez de fijarse en
+  duro.
+- **Modelo de degradaciones simplificado**, uno por cada fila de la tabla de la sección 6:
+  pérdida y duplicación son por probabilidad independiente por paquete; ráfaga es un corte de
+  duración fija activado una vez; jitter y reordenamiento comparten el mismo mecanismo (retardo
+  aleatorio antes de enviar, tomando el mayor de los dos si ambos están activos); congelación
+  fija az/el al valor que tenían al activarse mientras `seq`/`t_us` siguen avanzando; salto de
+  secuencia es un delta de una sola vez. No es una simulación de red fiel, es suficiente para
+  ejercitar cada reacción del receptor listada en la sección 6.

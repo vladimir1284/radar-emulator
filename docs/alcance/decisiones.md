@@ -294,3 +294,143 @@ completo (`docs/interfaces/modbus.md`) se traduce a ese `vector` a mano.
 **Descartado.** `jsmodbus`, y también reimplementar el servidor a mano sobre `node:net` — sigue
 siendo la alternativa de reserva si `modbus-serial` mostrara un problema no detectado en esta
 prueba de concepto (deliberadamente acotada, ver el spike en `spike-fase0/`).
+
+---
+
+## D-18 · Los bloques reales de la semilla no son los de `bloques.md`, y eso manda
+
+**Decisión.** La biblioteca de bloques de fase 2 se construye contra los cinco `type` que
+`config/rd100s.seed.json` usa de verdad — `expression`, `latch`, `state_machine`, `i2t`,
+`axis` — no contra la lista de `bloques.md` (`delay_on`, `delay_off`, `ramp`, `first_order`,
+`integrator`, `noise`, `threshold`), que no aparece en ningún bloque real de la semilla.
+
+**Por qué.** Mismo patrón que [PEND-23](pendientes.md#pend-23-esquemamd-describia-una-forma-que-no-es-la-de-la-semilla-resuelto):
+`bloques.md` es explícitamente "un esqueleto... lista de trabajo, no cerrada" redactado sin
+mirar qué bloques ya usaba la semilla. Construir contra una lista aspiracional dejaría sin
+implementar los cinco tipos que la semilla realmente necesita para encender el transmisor.
+
+**Consecuencia.** `bloques.md` se reescribe para documentar los cinco tipos reales con sus
+parámetros exactos. Si en el futuro se necesita `delay_on`/`ramp`/`noise`/etc., se agregan
+cuando un radar concreto los use, no antes.
+
+---
+
+## D-19 · `rising()` en el primer tick se resuelve solo, sin política especial
+
+**Decisión.** El valor "anterior" que usa `rising(señal)` para detectar flanco de subida se
+inicializa, para cada señal, en su `initial` de la configuración. El primer tick de evaluación
+del grafo no es un caso especial: compara contra ese valor sembrado igual que cualquier tick
+posterior compara contra el valor al final del tick anterior.
+
+**Por qué.** La pregunta que plantea `bloques.md` ("¿arranca su temporizador o considera la
+condición cumplida?") es sobre `delay_on`, que **no existe en ningún bloque de la semilla**
+([D-18](#d-18-los-bloques-reales-de-la-semilla-no-son-los-de-bloquesmd-y-eso-manda)). Los cinco
+tipos reales no tienen esa ambigüedad: `state_machine` declara su estado inicial explícito
+(`initial: "OFF"`), `i2t` arranca su acumulador en cero sin importar la corriente de entrada, y
+`latch`/`expression` solo dependen de `rising()` para el reset, que este esquema resuelve.
+
+---
+
+## D-20 · Una recarga de configuración reinicializa todo el estado de los bloques
+
+**Decisión.** Los bloques (acumuladores de `i2t`, estado de `state_machine`, salida de `latch`,
+posición/velocidad de `axis`) no sobreviven a una recarga. Una recarga tira el `SignalStore`
+entero y arma uno nuevo desde `initial` (`src/runtime.ts`, función `buildRuntime`, agregada en
+fase 1 para la recarga de configuración).
+
+**Por qué.** Es la opción "más predecible" que ya proponía `bloques.md`, y además es la que sale
+gratis de cómo ya está construida la recarga (fase 1): conservar estado exigiría serializar y
+migrar cada tipo de bloque, con casos borde por cada `type` nuevo que se agregue. Reinicializar
+es una sola regla, sin excepciones por tipo.
+
+**Consecuencia.** Recargar configuración en medio de una prueba larga (p.ej. con el magnetrón ya
+caldeado) pierde ese progreso. Es aceptable: la recarga ya implica sesión nueva
+([docs/ui/editor.md](../ui/editor.md#la-recarga-arranca-sesion-nueva)).
+
+---
+
+## D-21 · `latch` es reset-dominante
+
+**Decisión.** Cuando `set` y `reset` son ambos verdaderos en el mismo tick, `reset` gana: la
+salida pasa (o se mantiene) en falso.
+
+**Por qué.** `bloques.md` pedía "precedencia declarada" pero ningún `latch` de la semilla trae
+un campo de precedencia. `tx.magnetron_oc_latch` es el único caso real: `set` es una condición
+continua (`corriente > 55 A`) y `reset` es un pulso de operador (`rising(reset_faults_command)`).
+Si `set` ganara, un operador nunca podría limpiar la falla mientras la sobrecorriente persistiera
+ese mismo tick, que es precisamente cuando querría limpiarla. Mismo criterio que
+[D-15](#d-15-los-comandos-se-detectan-por-flanco-no-por-nivel): ante ambigüedad, gana la acción
+seguridad/operador, no la condición de campo.
+
+**Descartado.** Set-dominante, y un campo `precedence` explícito en el esquema —se agrega si
+aparece un `latch` real que necesite lo contrario.
+
+---
+
+## D-22 · Modelo de `i2t`: acumulador con calentamiento cuadrático y enfriamiento lineal
+
+**Decisión.** `i2t` no está en `bloques.md` en absoluto —ni en la lista aspiracional. Se
+implementa como acumulador `acc` en segundos:
+
+```
+si corriente > threshold_a:  acc += dt_s * ((corriente / threshold_a)^2 - 1)
+si no:                        acc = max(0, acc - dt_s)
+dispara (output = true) cuando acc >= time_s
+```
+
+**Por qué.** Aproxima el comportamiento real de una protección I²t —cuanto más se excede el
+umbral, más rápido se acumula "calor"— con dos parámetros que la semilla ya declara
+(`threshold_a`, `time_s`) y sin inventar un tercero. El enfriamiento lineal (no cuadrático) es
+deliberadamente más simple: no hay dato para justificar una curva de enfriamiento distinta.
+
+**Consecuencia.** Es una invención plausible, igual que los coeficientes que consume
+([PEND-15](pendientes.md#pend-15-ganancias-aceleraciones-y-modelo-de-corriente-de-los-ejes)).
+Marcado `// PEND-i2t-modelo` en el código. Confirmar contra la hoja de datos del relé de
+protección real antes de una prueba formal.
+
+---
+
+## D-23 · Modelo del bloque `axis`: aceleración limitada + corriente estática más proporcional
+
+**Decisión.** Cada tick del lazo de 10 ms: la velocidad objetivo es `reference * gain_deg_s_per_volt`
+(con `reference` congelado en cero si `enable` es falso o si el inhibidor de esa dirección está
+activo); la velocidad real persigue el objetivo limitada por `accel_deg_s2`; la posición integra
+la velocidad real; `wrap` envuelve en `0..360`, o si no hay `wrap`, `limits_deg` fija el recorrido
+y la velocidad se corta al llegar. La corriente reportada es
+`current_static_a + current_per_accel_a * |aceleracion_aplicada|`.
+
+**Por qué.** Es el modelo más simple que usa exactamente los parámetros que la semilla ya
+declara, sin inventar ninguno adicional. `inhibit_up`/`inhibit_down` se leen del **valor de la
+señal** (que ya respeta forzado, D-09), tal como pide la nota de la propia semilla: si el
+operador fuerza el final de carrera, el eje se detiene aunque la posición real no esté en el
+tope.
+
+**Consecuencia.** Invención plausible sobre invención plausible
+([PEND-15](pendientes.md#pend-15-ganancias-aceleraciones-y-modelo-de-corriente-de-los-ejes)).
+Marcado `// PEND-axis-modelo`.
+
+---
+
+## D-24 · Bug real en `tx.fsm`: la transición de caída de interlock no puede ser `"*"` literal
+
+**Decisión.** La transición `HV_ON/RADIATING -> READY when not tx.interlocks_ok` de
+`tx.fsm` (semilla) se acota a `from: ["HV_ON", "RADIATING"]`. El motor de `state_machine`
+(`src/core/graph.ts`) soporta `from` como string, array de strings, o `"*"` literal.
+
+**Por qué.** Verificado con `scripts/smoke-blocks.ts`: con `from: "*"` literal —como estaba
+escrito en la semilla— esta transición disparaba **en el primer tick**, antes de que el
+transmisor arrancara. `tx.interlocks_ok` empieza en `false` (nada forzado todavía), así que
+`not tx.interlocks_ok` es verdadero desde `t=0`, y con prioridad 90 gana sobre la transición
+`OFF -> STARTING`: la máquina saltaba directo a `READY` sin pasar nunca por `STARTING`/`WARMUP`,
+dejando la secuencia de encendido inalcanzable.
+
+La propia nota de la semilla en esa transición —"caída de interlock **retira HV** pero no apaga
+el Tx"— solo tiene sentido si el HV ya estaba presente, es decir, si el estado actual es
+`HV_ON` o `RADIATING`. La transición `"*" -> OFF when turn_off_tx_command` (prioridad 100), en
+cambio, sí es correctamente global: apagar debe funcionar desde cualquier estado, incluido
+`OFF` como no-operación.
+
+**Consecuencia.** `"*"` sigue siendo válido en el esquema para casos genuinamente globales
+(como el apagado). Cualquier bloque `state_machine` nuevo que use una transición de
+"protección"/"retirada" análoga a esta debe acotar `from` a los estados donde la condición
+protegida existe, no usar `"*"` por comodidad.

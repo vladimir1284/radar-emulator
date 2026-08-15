@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { RadarConfig, SignalDef } from "../config/types.js";
+import type { ExprContext } from "./expr.js";
 
 export type SignalQuality = "ok" | "uninit" | "range";
 export type SignalMode = "auto" | "forced";
@@ -9,13 +10,13 @@ export interface SignalReading {
   value: SignalValue;
   quality: SignalQuality;
   mode: SignalMode;
+  cut: boolean;
 }
 
 interface SignalRuntime {
   def: SignalDef;
-  // Lo que produciria el automatismo: en fase 1, sin bloques, es simplemente
-  // el ultimo valor escrito por el controlador (DO/AO) o el valor inicial
-  // (DI/AI/VIRT, sin productor todavia). Sigue corriendo aunque este forzada
+  // Lo que produciria el automatismo: escritura del controlador (DO/AO) o
+  // salida de un bloque (fase 2). Sigue corriendo aunque este forzada
   // (docs/arquitectura/senales-modos.md#el-bloque-productor-sigue-corriendo).
   shadow: SignalValue;
   forcedValue: SignalValue | null;
@@ -28,13 +29,19 @@ function inRange(def: SignalDef, value: SignalValue): boolean {
   return typeof value === "number" && value >= min && value <= max;
 }
 
-// Mapa de señales del nucleo. Fase 1: sin grafo de bloques/expresiones (ver
-// fases.md#fase-1), asi que "auto" para DI/AI/VIRT solo puede sostener el
-// valor inicial hasta que un operador fuerce, y para DO/AO lo produce el
-// propio flanco del controlador.
+// Mapa de señales del nucleo. tick() aplica escrituras del controlador y
+// deja que quien orqueste el lazo (tick-loop) le pase un callback para
+// evaluar el grafo de bloques (fase 2) entre medio.
 export class SignalStore extends EventEmitter {
   private readonly signals = new Map<string, SignalRuntime>();
   private readonly pendingWrites = new Map<string, SignalValue>();
+  // rising() compara contra esto; sembrado con "initial" (D-19): el primer
+  // tick no es un caso especial.
+  private readonly previousTickValues = new Map<string, SignalValue>();
+  // Señal -> valor congelado en el instante del corte. Los CONSUMIDORES del
+  // grafo ven este valor, no el real, mientras dure el corte
+  // (docs/arquitectura/senales-modos.md#cortar-la-propagacion-es-una-capacidad-no-un-fallo).
+  private readonly propagationCutValues = new Map<string, SignalValue>();
   private tickCount = 0;
 
   constructor(config: RadarConfig) {
@@ -46,6 +53,7 @@ export class SignalStore extends EventEmitter {
         forcedValue: def.mode === "forced" ? def.initial : null,
         mode: def.mode,
       });
+      this.previousTickValues.set(def.id, def.initial);
     }
   }
 
@@ -63,7 +71,14 @@ export class SignalStore extends EventEmitter {
     const s = this.require(id);
     const value = s.mode === "forced" ? (s.forcedValue as SignalValue) : s.shadow;
     const quality: SignalQuality = inRange(s.def, value) ? "ok" : "range";
-    return { value, quality, mode: s.mode };
+    return { value, quality, mode: s.mode, cut: this.propagationCutValues.has(id) };
+  }
+
+  // Valor que ve un CONSUMIDOR dentro del grafo: el congelado si esta
+  // cortada la propagacion, si no el real (que ya respeta forzado, D-09).
+  readForPropagation(id: string): SignalValue {
+    const cut = this.propagationCutValues.get(id);
+    return cut !== undefined ? cut : this.read(id).value;
   }
 
   // Llamado por el adaptador Modbus (o cualquier otro transporte) al recibir
@@ -82,6 +97,12 @@ export class SignalStore extends EventEmitter {
     this.pendingWrites.set(id, value);
   }
 
+  // Llamado por el evaluador de grafo (fase 2): la salida de un bloque
+  // siempre actualiza "shadow", forzada o no la señal (D-08).
+  setProduced(id: string, value: SignalValue): void {
+    this.require(id).shadow = value;
+  }
+
   force(id: string, value: SignalValue, actor: string): void {
     const s = this.require(id);
     s.mode = "forced";
@@ -98,9 +119,33 @@ export class SignalStore extends EventEmitter {
     this.emit("released", { id, value: s.shadow, actor, tick: this.tickCount });
   }
 
-  // Lazo de tick: drena las escrituras del controlador hacia "shadow". Sin
-  // evaluacion de grafo (fase 1, fases.md#fase-1-mapeo-verificable-de-extremo-a-extremo).
-  tick(): void {
+  cutPropagation(id: string, actor: string): void {
+    this.require(id); // valida que exista
+    const frozen = this.read(id).value;
+    this.propagationCutValues.set(id, frozen);
+    this.emit("propagation-cut", { id, value: frozen, actor, tick: this.tickCount });
+  }
+
+  restorePropagation(id: string, actor: string): void {
+    if (!this.propagationCutValues.has(id)) return;
+    this.propagationCutValues.delete(id);
+    this.emit("propagation-restored", { id, actor, tick: this.tickCount });
+  }
+
+  // Contexto de lectura para el evaluador de expresiones (src/core/expr.ts):
+  // "current" respeta forzado y corte de propagacion; "previous" es el
+  // valor efectivo al final del tick anterior (para rising()).
+  exprContext(): ExprContext {
+    return {
+      current: (id) => this.readForPropagation(id),
+      previous: (id) => this.previousTickValues.get(id) ?? this.require(id).def.initial,
+    };
+  }
+
+  // Lazo de tick: aplica flancos pendientes, evalua el grafo de bloques (si
+  // se pasa evaluador), y sella el snapshot que usara rising() en el
+  // proximo tick. Sin evaluador (fase 1, blocks:[]) es identico al de antes.
+  tick(evaluateBlocks?: (store: SignalStore) => void): void {
     this.tickCount += 1;
     for (const [id, value] of this.pendingWrites) {
       const s = this.require(id);
@@ -109,6 +154,12 @@ export class SignalStore extends EventEmitter {
       this.emit("applied-write", { id, value, tick: this.tickCount });
     }
     this.pendingWrites.clear();
+
+    evaluateBlocks?.(this);
+
+    for (const [id] of this.signals) {
+      this.previousTickValues.set(id, this.read(id).value);
+    }
     this.emit("tick", this.tickCount);
   }
 }

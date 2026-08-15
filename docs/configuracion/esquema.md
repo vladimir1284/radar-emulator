@@ -200,11 +200,18 @@ direcciones entre módulos.
   "azimuth_signal": "ant.az_position",
   "elevation_signal": "ant.el_position",
   "az_rate_signal": "ant.az_rate",
-  "el_rate_signal": "ant.el_rate"
+  "el_rate_signal": "ant.el_rate",
+  "az_fault_signal": "ant.i2t_drive_az_status",
+  "el_fault_signal": "ant.i2t_drive_el_status"
 }
 ```
 
-Los cuatro `*_signal` deben referenciar señales existentes en `signals[]`. Definido en la
+Los seis `*_signal` deben referenciar señales existentes en `signals[]`; `az_fault_signal` y
+`el_fault_signal` son opcionales (fase 2, no están en la especificación normativa original —
+determinan los bits `AZ_FAULT`/`EL_FAULT` del paquete UDP sin cablear en código qué señal
+concreta del RD100S los produce, ver [AGENTS.md](../../AGENTS.md)). La semilla solo declara
+`az_fault_signal`: no hay bloque `i2t` de elevación todavía, así que `EL_FAULT` queda siempre en
+cero. Definido en la
 [especificación normativa](../interfaces/udp-encoder.md#8-configuracion-en-el-emulador).
 
 ## Validación

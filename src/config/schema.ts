@@ -89,6 +89,8 @@ export const configSchema = {
             elevation_signal: { type: "string", minLength: 1 },
             az_rate_signal: { type: "string", minLength: 1 },
             el_rate_signal: { type: "string", minLength: 1 },
+            az_fault_signal: { type: "string", minLength: 1 },
+            el_fault_signal: { type: "string", minLength: 1 },
           },
         },
       },

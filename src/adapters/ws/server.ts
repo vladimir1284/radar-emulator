@@ -5,20 +5,75 @@ import type { EventLog, LoggedEvent } from "../../log/event-log.js";
 import type { RadarConfig } from "../../config/types.js";
 import type { TickLoopHandle } from "../../core/tick-loop.js";
 import type { ModbusTransactionCounter } from "../modbus/metrics.js";
+import type { UdpEncoderEmitter } from "../udp/encoder.js";
 import { nowMonotonicUs } from "../../core/clock.js";
 
+type DegradeKind =
+  | "loss"
+  | "burst"
+  | "duplicate"
+  | "reorder"
+  | "jitter"
+  | "freeze"
+  | "encoder_invalid"
+  | "seq_jump"
+  | "silence";
+
 interface ClientMessage {
-  type: "force" | "release" | "resume_from";
+  type: "force" | "release" | "resume_from" | "propagation" | "degrade";
   actor: string;
   signal?: string;
   value?: boolean | number;
   n?: number;
+  cut?: boolean;
+  kind?: DegradeKind;
+  active?: boolean;
+}
+
+// Aplica un mensaje "degrade" al estado mutable del emisor UDP y devuelve el
+// payload que se registra como evento (interfaces/udp-encoder.md#6).
+function applyDegradation(emitter: UdpEncoderEmitter, msg: ClientMessage): Record<string, unknown> | null {
+  const d = emitter.degradation;
+  const num = Number(msg.value ?? 0);
+  switch (msg.kind) {
+    case "loss":
+      d.lossProbability = Math.min(1, Math.max(0, num));
+      return { probability: d.lossProbability };
+    case "burst": {
+      const durationMs = Math.max(0, num);
+      d.burstUntilUs = durationMs > 0 ? nowMonotonicUs() + durationMs * 1000 : null;
+      return { duration_ms: durationMs };
+    }
+    case "duplicate":
+      d.duplicateProbability = Math.min(1, Math.max(0, num));
+      return { probability: d.duplicateProbability };
+    case "reorder":
+      d.reorderWindowMs = Math.max(0, num);
+      return { window_ms: d.reorderWindowMs };
+    case "jitter":
+      d.jitterMaxMs = Math.max(0, num);
+      return { max_ms: d.jitterMaxMs };
+    case "freeze":
+      d.frozen = Boolean(msg.active);
+      return { active: d.frozen };
+    case "encoder_invalid":
+      d.encoderInvalid = Boolean(msg.active);
+      return { active: d.encoderInvalid };
+    case "seq_jump":
+      d.seqJumpPending = Math.trunc(num);
+      return { delta: d.seqJumpPending };
+    case "silence":
+      d.silent = Boolean(msg.active);
+      return { active: d.silent };
+    default:
+      return null;
+  }
 }
 
 // Canal WebSocket: state (10Hz, se pierde sin drama) y event (numerado,
 // persistido antes de enviar) van por canales con politicas opuestas
-// (D-13, interfaces/websocket.md). "degrade"/"propagation"/"scenario" son
-// fase 2/3, no se manejan todavia.
+// (D-13, interfaces/websocket.md). "scenario" es fase 3, no se maneja
+// todavia.
 export function startWsServer(
   httpServer: HttpServer,
   config: RadarConfig,
@@ -26,6 +81,7 @@ export function startWsServer(
   eventLog: EventLog,
   tickLoop: TickLoopHandle,
   modbusMetrics: ModbusTransactionCounter,
+  udpEmitter: UdpEncoderEmitter,
 ): WebSocketServer {
   const wss = new WebSocketServer({ server: httpServer });
 
@@ -73,12 +129,25 @@ export function startWsServer(
       }),
     );
   });
+  store.on("propagation-cut", (e: { id: string; value: unknown; actor: string }) => {
+    sendEvent(
+      eventLog.log({
+        kind: "propagation_cut",
+        signal: e.id,
+        actor: e.actor,
+        payload: { frozen_value: e.value },
+      }),
+    );
+  });
+  store.on("propagation-restored", (e: { id: string; actor: string }) => {
+    sendEvent(eventLog.log({ kind: "propagation_restored", signal: e.id, actor: e.actor }));
+  });
 
   const stateTimer = setInterval(() => {
-    const signals: Record<string, { v: unknown; m: string; q: string }> = {};
+    const signals: Record<string, { v: unknown; m: string; q: string; c?: boolean }> = {};
     for (const def of config.signals) {
       const r = store.read(def.id);
-      signals[def.id] = { v: r.value, m: r.mode, q: r.quality };
+      signals[def.id] = r.cut ? { v: r.value, m: r.mode, q: r.quality, c: true } : { v: r.value, m: r.mode, q: r.quality };
     }
     broadcast({ type: "state", t_us: nowMonotonicUs(), signals });
   }, 100);
@@ -114,6 +183,18 @@ export function startWsServer(
         case "release": {
           if (!msg.signal || !store.has(msg.signal)) return;
           store.release(msg.signal, msg.actor);
+          break;
+        }
+        case "propagation": {
+          if (!msg.signal || !store.has(msg.signal)) return;
+          if (msg.cut) store.cutPropagation(msg.signal, msg.actor);
+          else store.restorePropagation(msg.signal, msg.actor);
+          break;
+        }
+        case "degrade": {
+          const payload = applyDegradation(udpEmitter, msg);
+          if (!payload) return;
+          sendEvent(eventLog.log({ kind: `degrade_${msg.kind}`, actor: msg.actor, payload }));
           break;
         }
         case "resume_from": {

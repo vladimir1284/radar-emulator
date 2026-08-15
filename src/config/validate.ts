@@ -97,14 +97,17 @@ export function validateConfig(config: RadarConfig): void {
   });
 
   // Referencias del stream UDP de encoder.
-  const encoderRefs: Array<[string, string]> = [
-    ["azimuth_signal", config.transports.encoder_udp.azimuth_signal],
-    ["elevation_signal", config.transports.encoder_udp.elevation_signal],
-    ["az_rate_signal", config.transports.encoder_udp.az_rate_signal],
-    ["el_rate_signal", config.transports.encoder_udp.el_rate_signal],
+  const encoderUdp = config.transports.encoder_udp;
+  const encoderRefs: Array<[string, string | undefined]> = [
+    ["azimuth_signal", encoderUdp.azimuth_signal],
+    ["elevation_signal", encoderUdp.elevation_signal],
+    ["az_rate_signal", encoderUdp.az_rate_signal],
+    ["el_rate_signal", encoderUdp.el_rate_signal],
+    ["az_fault_signal", encoderUdp.az_fault_signal],
+    ["el_fault_signal", encoderUdp.el_fault_signal],
   ];
   for (const [field, signalId] of encoderRefs) {
-    if (!signalIds.has(signalId)) {
+    if (signalId !== undefined && !signalIds.has(signalId)) {
       issues.push(
         `/transports/encoder_udp/${field}: "${signalId}" no existe en signals[]`,
       );

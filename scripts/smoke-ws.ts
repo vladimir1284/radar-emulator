@@ -4,6 +4,7 @@ import { loadConfig } from "../src/config/load.js";
 import { SignalStore } from "../src/core/signal-store.js";
 import { startTickLoop } from "../src/core/tick-loop.js";
 import { ModbusTransactionCounter } from "../src/adapters/modbus/metrics.js";
+import { UdpEncoderEmitter } from "../src/adapters/udp/encoder.js";
 import { EventLog } from "../src/log/event-log.js";
 import { createHttpServer } from "../src/adapters/http/static-server.js";
 import { startWsServer } from "../src/adapters/ws/server.js";
@@ -20,7 +21,7 @@ interface SessionMsg {
 }
 interface StateMsg {
   type: "state";
-  signals: Record<string, { v: boolean | number; m: string; q: string }>;
+  signals: Record<string, { v: boolean | number; m: string; q: string; c?: boolean }>;
 }
 interface EventMsg {
   type: "event";
@@ -80,6 +81,7 @@ async function main() {
   const store = new SignalStore(config);
   const tickLoop = startTickLoop(store, config.tick_ms);
   const metrics = new ModbusTransactionCounter();
+  const udpEmitter = new UdpEncoderEmitter(config, store); // no start(): no probado en este smoke test
 
   const httpServer = createHttpServer(
     new URL("../public", import.meta.url).pathname,
@@ -87,7 +89,7 @@ async function main() {
     () => ({ config, configHash: "smoke-test-hash" }),
     async () => ({ ok: false, error: "reload no probado en este smoke test" }),
   );
-  const wss = startWsServer(httpServer, config, store, eventLog, tickLoop, metrics);
+  const wss = startWsServer(httpServer, config, store, eventLog, tickLoop, metrics, udpEmitter);
 
   await new Promise<void>((resolve) => httpServer.listen(HTTP_PORT, resolve));
 
@@ -137,6 +139,29 @@ async function main() {
     const resent = await queue.waitFor((m): m is EventMsg => isForceEvent(m) && m.n === forceEvent.n);
     console.log("resume_from re-envio el evento n =", resent.n, "OK");
 
+    // --- propagation: corte y restitucion ---
+    ws.send(JSON.stringify({ type: "propagation", actor: "op-smoke", signal: signalId, cut: true }));
+    const cutEvent = await queue.waitFor((m): m is EventMsg => m.type === "event" && m.kind === "propagation_cut");
+    console.log("event propagation_cut recibido, n =", cutEvent.n);
+    const stateCut = await queue.waitFor((m): m is StateMsg => isState(m) && Boolean(m.signals[signalId]?.c));
+    console.log("state marca la señal cortada (c=true):", stateCut.signals[signalId], "OK");
+
+    ws.send(JSON.stringify({ type: "propagation", actor: "op-smoke", signal: signalId, cut: false }));
+    const restoredEvent = await queue.waitFor(
+      (m): m is EventMsg => m.type === "event" && m.kind === "propagation_restored",
+    );
+    console.log("event propagation_restored recibido, n =", restoredEvent.n);
+
+    // --- degrade: silencio total del stream UDP ---
+    ws.send(JSON.stringify({ type: "degrade", actor: "op-smoke", kind: "silence", active: true }));
+    const degradeEvent = await queue.waitFor((m): m is EventMsg => m.type === "event" && m.kind === "degrade_silence");
+    console.log("event degrade_silence recibido, n =", degradeEvent.n, "-> degradation.silent =", udpEmitter.degradation.silent);
+    ws.send(JSON.stringify({ type: "degrade", actor: "op-smoke", kind: "silence", active: false }));
+    await queue.waitFor(
+      (m): m is EventMsg => m.type === "event" && m.kind === "degrade_silence" && m.n === degradeEvent.n + 1,
+    );
+    console.log("degrade WS -> UdpEncoderEmitter.degradation: OK");
+
     const exportRes = await fetch(`http://127.0.0.1:${HTTP_PORT}/api/session/export`);
     const exportBody = (await exportRes.json()) as { events: unknown[] };
     console.log(
@@ -151,6 +176,7 @@ async function main() {
   } finally {
     ws.close();
     tickLoop.stop();
+    udpEmitter.stop();
     eventLog.close();
     wss.close();
     httpServer.close();

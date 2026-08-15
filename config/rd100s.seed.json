@@ -83,7 +83,8 @@
       "azimuth_signal": "ant.az_position",
       "elevation_signal": "ant.el_position",
       "az_rate_signal": "ant.az_rate",
-      "el_rate_signal": "ant.el_rate"
+      "el_rate_signal": "ant.el_rate",
+      "az_fault_signal": "ant.i2t_drive_az_status"
     }
   },
   "signals": [
@@ -2749,11 +2750,11 @@
             "priority": 100
           },
           {
-            "from": "*",
+            "from": ["HV_ON", "RADIATING"],
             "to": "READY",
             "when": "not tx.interlocks_ok",
             "priority": 90,
-            "_note": "caida de interlock retira HV pero no apaga el Tx"
+            "_note": "caida de interlock retira HV pero no apaga el Tx. from acotado a HV_ON/RADIATING (fase 2): con \"*\" literal esta transicion disparaba desde OFF en el primer tick, porque tx.interlocks_ok arranca en false antes de que nada este forzado, saltando directo a READY sin pasar por STARTING/WARMUP. Ver D-24."
           }
         ],
         "outputs": {

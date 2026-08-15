@@ -12,7 +12,10 @@
     "smoke:modbus": "tsx scripts/smoke-modbus.ts",
     "smoke:ws": "tsx scripts/smoke-ws.ts",
     "smoke:reload": "tsx scripts/smoke-reload.ts",
-    "smoke:ui": "tsx scripts/smoke-ui.ts"
+    "smoke:ui": "tsx scripts/smoke-ui.ts",
+    "smoke:blocks": "tsx scripts/smoke-blocks.ts",
+    "smoke:udp": "tsx scripts/smoke-udp.ts",
+    "smoke:fase2": "tsx scripts/smoke-fase2-e2e.ts"
   },
   "license": "UNLICENSED",
   "devEngines": {

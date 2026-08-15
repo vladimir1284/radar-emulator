@@ -7,8 +7,13 @@ export interface TickLoopHandle {
   lastDeviationMs: () => number;
 }
 
-// El tick nunca bloquea (AGENTS.md): store.tick() es sincrono, sin I/O.
-export function startTickLoop(store: SignalStore, tickMs: number): TickLoopHandle {
+// El tick nunca bloquea (AGENTS.md): store.tick() (y por lo tanto
+// evaluateBlocks) es sincrono, sin I/O.
+export function startTickLoop(
+  store: SignalStore,
+  tickMs: number,
+  evaluateBlocks?: (store: SignalStore) => void,
+): TickLoopHandle {
   let lastAt = process.hrtime.bigint();
   let deviationMs = 0;
 
@@ -17,7 +22,7 @@ export function startTickLoop(store: SignalStore, tickMs: number): TickLoopHandl
     const elapsedMs = Number(now - lastAt) / 1_000_000;
     deviationMs = elapsedMs - tickMs;
     lastAt = now;
-    store.tick();
+    store.tick(evaluateBlocks);
   }, tickMs);
 
   return {

@@ -59,6 +59,8 @@ export interface TransportsDef {
     elevation_signal: string;
     az_rate_signal: string;
     el_rate_signal: string;
+    az_fault_signal?: string;
+    el_fault_signal?: string;
   };
 }
 
