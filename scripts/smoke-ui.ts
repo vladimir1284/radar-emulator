@@ -116,6 +116,53 @@ async function main() {
     assert(silenceBtnTextOff === "activar", `boton de silencio deberia volver a "activar", dice "${silenceBtnTextOff}"`);
     console.log("panel de degradaciones UDP (silencio total, refleja estado real del servidor): OK");
 
+    // --- panel de aserciones (fase 3) ---
+    const assertionRow = page.locator('.assertion-row[data-assertion-id="hv-drop-on-interlock"]');
+    await assertionRow.waitFor();
+    const pendingBadge = await assertionRow.locator(".badge").innerText();
+    assert(pendingBadge === "pendiente", `asercion deberia arrancar pendiente, dice "${pendingBadge}"`);
+    console.log("panel de aserciones lista la asercion de la semilla: OK");
+
+    // --- panel de escenarios (fase 3): correr el escenario normativo entero ---
+    const scenarioRow = page.locator('.scenario-row[data-scenario-id="blower-fail-and-reset"]');
+    await scenarioRow.waitFor();
+    // Precondicion: las 6 condiciones de interlock en true, incluida
+    // cb_blower_ok_status -- el paso 0 del escenario la fuerza a false, y
+    // sin este true previo no hay flanco de bajada que detectar (falling()
+    // compara contra el tick anterior, D-19).
+    for (const id of [
+      "tx.interlock_ok_status",
+      "tx.wg_pressure_ok_status",
+      "tx.magnetron_blower_ok_status",
+      "tx.pha_seq_ok_status",
+      "tx.duty_cycle_ok_status",
+      "tx.cb_blower_ok_status",
+    ]) {
+      const row = page.locator(`.signal-row[data-signal-id="${id}"]`);
+      await row.locator("button", { hasText: "alternar" }).click();
+    }
+    await page.waitForTimeout(300);
+
+    await scenarioRow.locator("button", { hasText: "iniciar" }).click();
+    await page.waitForTimeout(1200); // esperar "metrics" (1Hz) confirmando que arranco
+
+    const statusRunning = await page.locator("#scenario-status").innerText();
+    assert(statusRunning.includes("blower-fail-and-reset"), `scenario-status deberia mostrar en curso: "${statusRunning}"`);
+    const abortDisabled = await page.locator("#scenario-abort-btn").isDisabled();
+    assert(!abortDisabled, "boton abortar deberia habilitarse mientras el escenario corre");
+    console.log("escenario iniciado desde la UI, estado 'en curso' confirmado por el servidor: OK");
+
+    const passBadge = await assertionRow.locator(".badge").innerText({ timeout: 3000 });
+    assert(passBadge === "pass", `la asercion deberia resolver "pass", dice "${passBadge}"`);
+    console.log("badge de la asercion paso a 'pass' en vivo: OK");
+
+    await page.waitForTimeout(5500); // el escenario dura ~5.3s (ultimo paso a los 5300ms)
+    const statusIdle = await page.locator("#scenario-status").innerText();
+    assert(statusIdle === "ninguno en curso", `scenario-status deberia volver a idle, dice "${statusIdle}"`);
+    const abortDisabledAfter = await page.locator("#scenario-abort-btn").isDisabled();
+    assert(abortDisabledAfter, "boton abortar deberia deshabilitarse tras terminar");
+    console.log("escenario termina solo, UI vuelve a idle: OK");
+
     assert(consoleErrors.length === 0, `errores de consola/pagina: ${consoleErrors.join(" | ")}`);
     console.log("sin errores de consola: OK");
 

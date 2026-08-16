@@ -6,6 +6,8 @@ import type { RadarConfig } from "../../config/types.js";
 import type { TickLoopHandle } from "../../core/tick-loop.js";
 import type { ModbusTransactionCounter } from "../modbus/metrics.js";
 import type { UdpEncoderEmitter } from "../udp/encoder.js";
+import type { AssertionEngine, AssertionResult } from "../../core/assertions.js";
+import type { ScenarioRunner, ScenarioStepEvent } from "../../core/scenarios.js";
 import { nowMonotonicUs } from "../../core/clock.js";
 
 type DegradeKind =
@@ -20,7 +22,7 @@ type DegradeKind =
   | "silence";
 
 interface ClientMessage {
-  type: "force" | "release" | "resume_from" | "propagation" | "degrade";
+  type: "force" | "release" | "resume_from" | "propagation" | "degrade" | "scenario";
   actor: string;
   signal?: string;
   value?: boolean | number;
@@ -28,6 +30,8 @@ interface ClientMessage {
   cut?: boolean;
   kind?: DegradeKind;
   active?: boolean;
+  action?: "start" | "abort";
+  id?: string;
 }
 
 // Aplica un mensaje "degrade" al estado mutable del emisor UDP y devuelve el
@@ -72,8 +76,7 @@ function applyDegradation(emitter: UdpEncoderEmitter, msg: ClientMessage): Recor
 
 // Canal WebSocket: state (10Hz, se pierde sin drama) y event (numerado,
 // persistido antes de enviar) van por canales con politicas opuestas
-// (D-13, interfaces/websocket.md). "scenario" es fase 3, no se maneja
-// todavia.
+// (D-13, interfaces/websocket.md).
 export function startWsServer(
   httpServer: HttpServer,
   config: RadarConfig,
@@ -82,8 +85,13 @@ export function startWsServer(
   tickLoop: TickLoopHandle,
   modbusMetrics: ModbusTransactionCounter,
   udpEmitter: UdpEncoderEmitter,
+  assertionEngine: AssertionEngine,
+  scenarioRunner: ScenarioRunner,
 ): WebSocketServer {
   const wss = new WebSocketServer({ server: httpServer });
+  // Ultimo resultado conocido de cada asercion: es lo que un paso "assert"
+  // de escenario reporta como checkpoint (observabilidad.md#escenarios).
+  const latestAssertionResults = new Map<string, AssertionResult>();
 
   function broadcast(message: unknown): void {
     const json = JSON.stringify(message);
@@ -143,11 +151,55 @@ export function startWsServer(
     sendEvent(eventLog.log({ kind: "propagation_restored", signal: e.id, actor: e.actor }));
   });
 
+  // Aserciones (fase 3, D-14): el simulador es quien decide pasa/falla,
+  // nunca la interfaz.
+  assertionEngine.on("result", (r: AssertionResult) => {
+    latestAssertionResults.set(r.assertionId, r);
+    sendEvent(eventLog.log({ kind: "assertion_result", actor: "simulador", payload: r }));
+  });
+
+  // Escenarios (fase 3): cada paso se registra; un paso "assert" adjunta el
+  // ultimo resultado conocido de esa asercion como checkpoint.
+  scenarioRunner.on("step", (e: ScenarioStepEvent) => {
+    if (e.step.action === "assert") {
+      const result = e.step.id ? (latestAssertionResults.get(e.step.id) ?? null) : null;
+      sendEvent(
+        eventLog.log({
+          kind: "scenario_assert",
+          actor: e.actor,
+          payload: { scenario_id: e.scenarioId, assertion_id: e.step.id, result },
+        }),
+      );
+      return;
+    }
+    sendEvent(
+      eventLog.log({
+        kind: "scenario_step",
+        actor: e.actor,
+        payload: { scenario_id: e.scenarioId, step: e.step, index: e.index },
+      }),
+    );
+  });
+  scenarioRunner.on("finished", (e: { scenarioId: string }) => {
+    sendEvent(eventLog.log({ kind: "scenario_finished", payload: { scenario_id: e.scenarioId } }));
+  });
+  scenarioRunner.on("aborted", (e: { scenarioId: string; actor: string }) => {
+    sendEvent(
+      eventLog.log({ kind: "scenario_aborted", actor: e.actor, payload: { scenario_id: e.scenarioId } }),
+    );
+  });
+
   const stateTimer = setInterval(() => {
-    const signals: Record<string, { v: unknown; m: string; q: string; c?: boolean }> = {};
+    const signals: Record<string, { v: unknown; m: string; q: string; c?: boolean; by?: string }> = {};
     for (const def of config.signals) {
       const r = store.read(def.id);
-      signals[def.id] = r.cut ? { v: r.value, m: r.mode, q: r.quality, c: true } : { v: r.value, m: r.mode, q: r.quality };
+      signals[def.id] = {
+        v: r.value,
+        m: r.mode,
+        q: r.quality,
+        ...(r.cut ? { c: true } : {}),
+        ...(r.forcedBy ? { by: r.forcedBy } : {}),
+      };
     }
     broadcast({ type: "state", t_us: nowMonotonicUs(), signals });
   }, 100);
@@ -170,6 +222,10 @@ export function startWsServer(
         frozen: d.frozen,
         encoder_invalid: d.encoderInvalid,
         silent: d.silent,
+      },
+      scenario: {
+        running: scenarioRunner.isRunning(),
+        id: scenarioRunner.currentScenarioId(),
       },
     });
   }, 1000);
@@ -208,6 +264,28 @@ export function startWsServer(
           const payload = applyDegradation(udpEmitter, msg);
           if (!payload) return;
           sendEvent(eventLog.log({ kind: `degrade_${msg.kind}`, actor: msg.actor, payload }));
+          break;
+        }
+        case "scenario": {
+          if (msg.action === "start" && msg.id) {
+            const result = scenarioRunner.start(msg.id, msg.actor);
+            if (!result.ok) {
+              sendEvent(
+                eventLog.log({
+                  kind: "scenario_rejected",
+                  actor: msg.actor,
+                  payload: { scenario_id: msg.id, error: result.error },
+                }),
+              );
+            }
+          } else if (msg.action === "abort") {
+            const result = scenarioRunner.abort(msg.actor);
+            if (!result.ok) {
+              sendEvent(
+                eventLog.log({ kind: "scenario_rejected", actor: msg.actor, payload: { error: result.error } }),
+              );
+            }
+          }
           break;
         }
         case "resume_from": {

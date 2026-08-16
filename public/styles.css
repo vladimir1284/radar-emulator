@@ -157,5 +157,43 @@ main {
   border-color: var(--forced);
 }
 
+#assertions-panel, #scenarios-panel {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+#assertions-panel h2, #scenarios-panel h2 { font-size: 0.95rem; margin: 0 0 0.5rem; }
+
+.assertion-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+}
+.assertion-row:first-child { border-top: none; }
+.assertion-row .assertion-desc { font-size: 0.8rem; }
+.assertion-row .assertion-id { color: var(--muted); font-size: 0.7rem; font-family: ui-monospace, monospace; display: block; }
+.assertion-row .assertion-margin { color: var(--muted); font-size: 0.7rem; }
+
+.badge.pass { color: var(--ok); border: 1px solid var(--ok); }
+.badge.fail { color: var(--range); border: 1px solid var(--range); }
+.badge.pending { color: var(--muted); border: 1px solid var(--muted); }
+
+.scenario-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--border);
+}
+.scenario-row:first-child { border-top: none; }
+.scenario-row .scenario-desc { font-size: 0.8rem; color: var(--muted); display: block; }
+
+#scenario-status { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
+#scenario-status.running { color: var(--forced); }
+
 .signal-row .propagation-btn.cut { color: var(--range); border-color: var(--range); }
 .signal-row.propagation-cut { outline: 1px dashed var(--range); outline-offset: -1px; }

@@ -6,6 +6,8 @@ import { SignalStore } from "./core/signal-store.js";
 import { startTickLoop, type TickLoopHandle } from "./core/tick-loop.js";
 import { startAxisLoop } from "./core/axis-loop.js";
 import { compileModel } from "./core/model.js";
+import { ScenarioRunner } from "./core/scenarios.js";
+import { nowMonotonicUs } from "./core/clock.js";
 import { startModbusServer } from "./adapters/modbus/server.js";
 import { ModbusTransactionCounter } from "./adapters/modbus/metrics.js";
 import { UdpEncoderEmitter } from "./adapters/udp/encoder.js";
@@ -24,6 +26,7 @@ export interface Runtime {
   modbusMetrics: ModbusTransactionCounter;
   modbusServer: ServerTCP;
   udpEmitter: UdpEncoderEmitter;
+  scenarioRunner: ScenarioRunner;
   wss: WebSocketServer;
 }
 
@@ -44,11 +47,11 @@ function attachModbusLogging(server: ServerTCP, config: RadarConfig): void {
 
 // Arranca (o rearranca en una recarga) todo lo que depende de la
 // configuracion: store, los dos lazos (tick 50ms + ejes 10ms, D-10),
-// servidor Modbus, emisor UDP, WebSocket. El httpServer y el EventLog
-// sobreviven a una recarga; todo lo demas se tira y se rehace.
-// Valida antes de tocar nada (loadConfig/compileModel pueden lanzar
-// ConfigValidationError/GraphError): si esto tira, el runtime anterior
-// sigue intacto.
+// servidor Modbus, emisor UDP, motor de escenarios, WebSocket. El
+// httpServer y el EventLog sobreviven a una recarga; todo lo demas se tira
+// y se rehace. Valida antes de tocar nada (loadConfig/compileModel pueden
+// lanzar ConfigValidationError/GraphError): si esto tira, el runtime
+// anterior sigue intacto.
 export function buildRuntime(
   configPath: string,
   httpServer: ReturnType<typeof createHttpServer>,
@@ -56,12 +59,15 @@ export function buildRuntime(
 ): Runtime {
   const config = loadConfig(configPath);
   const configHash = hashConfigFile(configPath);
-  const { graph, axisBlocks } = compileModel(config);
+  const { graph, axisBlocks, assertionEngine } = compileModel(config);
 
   eventLog.beginSession(configHash, config.tick_ms);
 
   const store = new SignalStore(config);
-  const tickLoop = startTickLoop(store, config.tick_ms, (s) => graph.evaluate(s));
+  const tickLoop = startTickLoop(store, config.tick_ms, (s) => {
+    graph.evaluate(s);
+    assertionEngine.evaluate(s, nowMonotonicUs());
+  });
   const axisLoop = startAxisLoop(store, axisBlocks, config.rate_groups.fast ?? 10);
 
   const modbusMetrics = new ModbusTransactionCounter();
@@ -71,7 +77,19 @@ export function buildRuntime(
   const udpEmitter = new UdpEncoderEmitter(config, store);
   udpEmitter.start();
 
-  const wss = startWsServer(httpServer, config, store, eventLog, tickLoop, modbusMetrics, udpEmitter);
+  const scenarioRunner = new ScenarioRunner(store, config.scenarios);
+
+  const wss = startWsServer(
+    httpServer,
+    config,
+    store,
+    eventLog,
+    tickLoop,
+    modbusMetrics,
+    udpEmitter,
+    assertionEngine,
+    scenarioRunner,
+  );
 
   return {
     configPath,
@@ -83,6 +101,7 @@ export function buildRuntime(
     modbusMetrics,
     modbusServer,
     udpEmitter,
+    scenarioRunner,
     wss,
   };
 }
@@ -91,6 +110,7 @@ export async function teardownRuntime(runtime: Runtime): Promise<void> {
   runtime.tickLoop.stop();
   runtime.axisLoop.stop();
   runtime.udpEmitter.stop();
+  runtime.scenarioRunner.stopAll();
   runtime.wss.close();
   await closeModbusServer(runtime.modbusServer);
 }

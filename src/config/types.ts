@@ -71,6 +71,37 @@ export interface BlockDef {
   params: Record<string, unknown>;
 }
 
+// Exactamente uno de within_ms/not_before_ms/stable_for_ms, o ninguno (tipo
+// "never", ver docs/implementacion/observabilidad.md#aserciones). El tipo
+// se infiere de cual campo esta presente, no hay un campo "type" separado
+// (asi es como lo escribe la doc normativa).
+export interface AssertionDef {
+  id: string;
+  description: string;
+  when?: string;
+  expect: string;
+  within_ms?: number;
+  not_before_ms?: number;
+  stable_for_ms?: number;
+}
+
+export type ScenarioStepAction = "force" | "release" | "pulse" | "assert";
+
+export interface ScenarioStep {
+  at_ms: number;
+  action: ScenarioStepAction;
+  signal?: string;
+  value?: boolean | number;
+  ms?: number;
+  id?: string;
+}
+
+export interface ScenarioDef {
+  id: string;
+  description?: string;
+  steps: ScenarioStep[];
+}
+
 export interface RadarConfig {
   schema_version: number;
   name: string;
@@ -81,4 +112,6 @@ export interface RadarConfig {
   transports: TransportsDef;
   signals: SignalDef[];
   blocks: BlockDef[];
+  assertions: AssertionDef[];
+  scenarios: ScenarioDef[];
 }

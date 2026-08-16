@@ -2885,5 +2885,26 @@
         "reset": "rising(ant.turn_on_off_au_conmand)"
       }
     }
+  ],
+  "assertions": [
+    {
+      "id": "hv-drop-on-interlock",
+      "description": "El HV debe caer en menos de 200 ms tras perder el interlock",
+      "when": "falling(tx.interlocks_ok)",
+      "expect": "not tx.radiating_status",
+      "within_ms": 200
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "blower-fail-and-reset",
+      "description": "Ejemplo normativo de docs/implementacion/observabilidad.md#escenarios",
+      "steps": [
+        { "at_ms": 0, "action": "force", "signal": "tx.cb_blower_ok_status", "value": false },
+        { "at_ms": 300, "action": "assert", "id": "hv-drop-on-interlock" },
+        { "at_ms": 5000, "action": "release", "signal": "tx.cb_blower_ok_status" },
+        { "at_ms": 5300, "action": "pulse", "signal": "tx.reset_faults_command", "ms": 100 }
+      ]
+    }
   ]
 }

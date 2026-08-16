@@ -434,3 +434,58 @@ cambio, sí es correctamente global: apagar debe funcionar desde cualquier estad
 (como el apagado). Cualquier bloque `state_machine` nuevo que use una transición de
 "protección"/"retirada" análoga a esta debe acotar `from` a los estados donde la condición
 protegida existe, no usar `"*"` por comodidad.
+
+---
+
+## D-26 · Semántica del motor de aserciones — invención más especulativa que D-18 a D-24
+
+**Decisión.** `docs/implementacion/observabilidad.md#aserciones` da un ejemplo por tipo, pero
+ninguna asercion vivía todavía en `config/rd100s.seed.json` cuando se implementó (a diferencia
+de los bloques, donde "la semilla manda" tenía datos reales que resolvían la ambigüedad). Aquí
+no había datos previos: la semántica exacta es diseño nuevo, no lectura de un ejemplo real.
+Reglas implementadas (`src/core/assertions.ts`):
+
+- El tipo se infiere de cuál de `within_ms`/`not_before_ms`/`stable_for_ms` está presente; sin
+  ninguno de los tres, es `never`.
+- `within_ms`/`not_before_ms`/`stable_for_ms` necesitan `when` (dispara una instancia con
+  `rising()`/`falling()`, igual que los bloques). **Como mucho una instancia activa por
+  asercion**: un segundo disparo de `when` mientras la primera instancia sigue esperando se
+  ignora. Esto es deliberado y simplifica el motor, pero significa que un `when` sin
+  `rising()`/`falling()` (nivel puro) solo arma una instancia la primera vez que se vuelve
+  verdadero, no en cada tick.
+- `never` no tiene `when`: vigila `expect` (aquí, la condición **prohibida**, no la esperada —
+  inversión de significado respecto a los otros tres tipos, que ya trae la propia tabla de la
+  documentación) desde la carga, con flanco de subida propio del motor (no del store).
+- `stable_for_ms`: si `expect` ya es falso en el instante del disparo, falla inmediatamente sin
+  esperar el plazo — nunca llegó a estar en el estado que debía sostenerse.
+- `not_before_ms`: si `expect` nunca se vuelve verdadero, la instancia queda pendiente
+  indefinidamente (sin límite superior). No hay dato para justificar un timeout arbitrario.
+- Signo del margen: positivo es "cómodo" (llegó con holgura en `within_ms`/`stable_for_ms`, o
+  llegó tarde como se esperaba en `not_before_ms`); negativo o "quedó pendiente" es lo contrario.
+
+**Consecuencia.** Esto es más una propuesta razonada que una decisión confirmada contra datos
+reales. Revisar con el equipo antes de apoyarse en el signo exacto del margen para una prueba
+formal ([PEND-26](../alcance/pendientes.md#pend-26-semantica-del-motor-de-aserciones-sin-confirmar)).
+
+---
+
+## D-27 · El motor de escenarios usa force/release reales, un escenario a la vez
+
+**Decisión.** `pulse` se implementa como `force(signal, true, actor)` seguido de
+`release(signal, actor)` tras `ms` milisegundos — literalmente lo que haría un operador
+presionando un botón. Los pasos se programan con `setTimeout` contra el reloj real desde que
+arranca el escenario (no contra el tick, aunque las mediciones de las aserciones sí usan el
+reloj monótono del núcleo). Un paso `assert` no evalúa nada por sí mismo: es un checkpoint que
+adjunta al registro el **último resultado conocido** de esa asercion (el motor de aserciones
+corre siempre, no solo durante un escenario). Solo un escenario puede correr a la vez; arrancar
+uno con otro en curso se rechaza.
+
+**Por qué.** Igual que D-26, no había un escenario real en la semilla antes de esta
+implementación — la referencia de `blower-fail-and-reset` en la documentación se agregó a
+`config/rd100s.seed.json` durante esta misma fase, junto con su asercion asociada, precisamente
+para tener un caso real contra el cual verificar el motor
+(`scripts/smoke-scenario.ts`).
+
+**Consecuencia.** Si en el futuro se necesita correr escenarios en paralelo (p.ej. uno por
+subsistema), hay que rediseñar `ScenarioRunner` — hoy asume single-flight a propósito, porque
+dos escenarios tocando la misma señal a la vez no tiene una semántica obvia de quién gana.

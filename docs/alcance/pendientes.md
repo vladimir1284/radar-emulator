@@ -177,3 +177,14 @@ de decidir con el equipo: ¿se ajusta D-06 para reflejar que `expressions` es un
 afecta al código —el validador comprueba que `signal.subsystem` exista en `subsystems[]`, sea
 cual sea el nombre— pero la documentación y el código deben usar el mismo nombre. Confirmar cuál
 es el correcto y corregir el otro lado.
+
+### PEND-26 · Semántica del motor de aserciones sin confirmar
+
+[D-26](decisiones.md#d-26-semantica-del-motor-de-aserciones-invencion-mas-especulativa-que-d-18-a-d-24)
+implementa `within_ms`/`not_before_ms`/`stable_for_ms`/`never` sin un ejemplo real previo en la
+semilla que fijara el comportamiento exacto (a diferencia de los bloques de fase 2, donde la
+semilla ya traía casos reales). En particular: una instancia activa por asercion a la vez
+(un segundo disparo de `when` mientras la primera espera se ignora), `not_before_ms` sin límite
+superior si `expect` nunca llega, y el signo del margen reportado. Revisar con el equipo antes
+de una prueba formal que dependa del valor exacto del margen o de disparos repetidos del mismo
+`when` en una ventana corta.

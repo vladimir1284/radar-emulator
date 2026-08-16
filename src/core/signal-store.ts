@@ -11,6 +11,9 @@ export interface SignalReading {
   quality: SignalQuality;
   mode: SignalMode;
   cut: boolean;
+  // Quien la forzo, si mode==="forced" (docs/ui/operacion.md#vista-de-señales,
+  // interfaces/websocket.md#state). null en modo auto.
+  forcedBy: string | null;
 }
 
 interface SignalRuntime {
@@ -20,6 +23,7 @@ interface SignalRuntime {
   // (docs/arquitectura/senales-modos.md#el-bloque-productor-sigue-corriendo).
   shadow: SignalValue;
   forcedValue: SignalValue | null;
+  forcedBy: string | null;
   mode: SignalMode;
 }
 
@@ -51,6 +55,7 @@ export class SignalStore extends EventEmitter {
         def,
         shadow: def.initial,
         forcedValue: def.mode === "forced" ? def.initial : null,
+        forcedBy: def.mode === "forced" ? "configuracion" : null,
         mode: def.mode,
       });
       this.previousTickValues.set(def.id, def.initial);
@@ -71,7 +76,13 @@ export class SignalStore extends EventEmitter {
     const s = this.require(id);
     const value = s.mode === "forced" ? (s.forcedValue as SignalValue) : s.shadow;
     const quality: SignalQuality = inRange(s.def, value) ? "ok" : "range";
-    return { value, quality, mode: s.mode, cut: this.propagationCutValues.has(id) };
+    return {
+      value,
+      quality,
+      mode: s.mode,
+      cut: this.propagationCutValues.has(id),
+      forcedBy: s.mode === "forced" ? s.forcedBy : null,
+    };
   }
 
   // Valor que ve un CONSUMIDOR dentro del grafo: el congelado si esta
@@ -107,6 +118,7 @@ export class SignalStore extends EventEmitter {
     const s = this.require(id);
     s.mode = "forced";
     s.forcedValue = value;
+    s.forcedBy = actor;
     this.emit("forced", { id, value, actor, tick: this.tickCount });
   }
 
@@ -116,6 +128,7 @@ export class SignalStore extends EventEmitter {
     const s = this.require(id);
     s.mode = "auto";
     s.forcedValue = null;
+    s.forcedBy = null;
     this.emit("released", { id, value: s.shadow, actor, tick: this.tickCount });
   }
 

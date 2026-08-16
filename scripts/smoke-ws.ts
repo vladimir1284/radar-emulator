@@ -5,6 +5,8 @@ import { SignalStore } from "../src/core/signal-store.js";
 import { startTickLoop } from "../src/core/tick-loop.js";
 import { ModbusTransactionCounter } from "../src/adapters/modbus/metrics.js";
 import { UdpEncoderEmitter } from "../src/adapters/udp/encoder.js";
+import { compileModel } from "../src/core/model.js";
+import { ScenarioRunner } from "../src/core/scenarios.js";
 import { EventLog } from "../src/log/event-log.js";
 import { createHttpServer } from "../src/adapters/http/static-server.js";
 import { startWsServer } from "../src/adapters/ws/server.js";
@@ -79,9 +81,11 @@ async function main() {
   const eventLog = new EventLog(DB_PATH);
   eventLog.beginSession("smoke-test-hash", config.tick_ms);
   const store = new SignalStore(config);
+  const { assertionEngine } = compileModel(config);
   const tickLoop = startTickLoop(store, config.tick_ms);
   const metrics = new ModbusTransactionCounter();
   const udpEmitter = new UdpEncoderEmitter(config, store); // no start(): no probado en este smoke test
+  const scenarioRunner = new ScenarioRunner(store, config.scenarios);
 
   const httpServer = createHttpServer(
     new URL("../public", import.meta.url).pathname,
@@ -89,7 +93,17 @@ async function main() {
     () => ({ config, configHash: "smoke-test-hash" }),
     async () => ({ ok: false, error: "reload no probado en este smoke test" }),
   );
-  const wss = startWsServer(httpServer, config, store, eventLog, tickLoop, metrics, udpEmitter);
+  const wss = startWsServer(
+    httpServer,
+    config,
+    store,
+    eventLog,
+    tickLoop,
+    metrics,
+    udpEmitter,
+    assertionEngine,
+    scenarioRunner,
+  );
 
   await new Promise<void>((resolve) => httpServer.listen(HTTP_PORT, resolve));
 

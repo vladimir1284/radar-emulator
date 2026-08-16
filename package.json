@@ -15,7 +15,9 @@
     "smoke:ui": "tsx scripts/smoke-ui.ts",
     "smoke:blocks": "tsx scripts/smoke-blocks.ts",
     "smoke:udp": "tsx scripts/smoke-udp.ts",
-    "smoke:fase2": "tsx scripts/smoke-fase2-e2e.ts"
+    "smoke:fase2": "tsx scripts/smoke-fase2-e2e.ts",
+    "smoke:assertions": "tsx scripts/smoke-assertions.ts",
+    "smoke:scenario": "tsx scripts/smoke-scenario.ts"
   },
   "license": "UNLICENSED",
   "devEngines": {

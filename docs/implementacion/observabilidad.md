@@ -79,6 +79,14 @@ Tipos útiles:
 | `stable_for_ms` | La condición se mantiene durante el plazo |
 | `never` | La condición no se cumple en toda la sesión |
 
+!!! note "Implementado en `src/core/assertions.ts`"
+    A diferencia de los bloques de fase 2, no había un ejemplo real en la semilla que fijara la
+    semántica exacta antes de implementarla — es diseño nuevo, más especulativo. Ver
+    [D-26](../alcance/decisiones.md#d-26-semantica-del-motor-de-aserciones-invencion-mas-especulativa-que-d-18-a-d-24)
+    y [PEND-26](../alcance/pendientes.md#pend-26-semantica-del-motor-de-aserciones-sin-confirmar).
+    El ejemplo `hv-drop-on-interlock` de esta página ya vive en
+    `config/rd100s.seed.json` y se verifica en `scripts/smoke-assertions.ts`.
+
 ## Escenarios
 
 Secuencias temporizadas en JSON. Existen porque las pruebas de temporización repetibles no se
@@ -103,6 +111,16 @@ resolución del tick.
     Los escenarios son para pruebas repetibles y regresión. El trabajo exploratorio del operador
     es manual y en caliente, que es como se descubren los comportamientos que luego merece la
     pena convertir en escenario.
+
+!!! note "Implementado en `src/core/scenarios.ts`"
+    `pulse` es literalmente `force` seguido de `release` tras `ms` milisegundos: es lo que haría
+    un operador presionando un botón, no un mecanismo aparte. Un paso `assert` no evalúa nada por
+    sí mismo — es un checkpoint que registra el último resultado conocido de esa asercion, ya que
+    el motor de aserciones corre siempre, no solo durante un escenario. Solo un escenario corre a
+    la vez ([D-27](../alcance/decisiones.md#d-27-el-motor-de-escenarios-usa-forcerelease-reales-un-escenario-a-la-vez)).
+    El ejemplo `blower-fail-and-reset` de esta página ya vive en `config/rd100s.seed.json` y se
+    verifica de punta a punta en `scripts/smoke-scenario.ts` (WebSocket real) y
+    `scripts/smoke-ui.ts` (navegador real vía Playwright).
 
 ## Métricas de calidad de enlace
 

@@ -70,9 +70,28 @@ aplicado, hora de pared del arranque, número de operadores conectados.
 
 ### `metrics`
 
-Métricas de calidad de enlace, 1 Hz: transacciones Modbus por segundo, latencia de petición a
-respuesta, paquetes UDP emitidos y descartados, y desviación real de la cadencia respecto a la
-nominal. Sirven para responder si un fallo fue del controlador o del banco.
+Métricas de calidad de enlace, 1 Hz. Implementado hoy: transacciones Modbus por segundo y
+desviación real del tick respecto a la nominal. También lleva el estado real de las
+degradaciones UDP y del escenario en curso (si hay uno), para que el panel de operación no
+tenga que adivinar lo que otro operador ya activó:
+
+```json
+{
+  "type": "metrics",
+  "t_us": 128394821,
+  "modbus_tx_per_s": 12,
+  "tick_deviation_ms": 0.4,
+  "degradation": {
+    "loss_probability": 0, "burst_active": false, "duplicate_probability": 0,
+    "reorder_window_ms": 0, "jitter_max_ms": 0, "frozen": false,
+    "encoder_invalid": false, "silent": false
+  },
+  "scenario": { "running": true, "id": "blower-fail-and-reset" }
+}
+```
+
+Latencia de petición a respuesta y paquetes UDP descartados **no están implementados todavía**
+(quedan para cuando haya un caso de uso concreto que los necesite).
 
 ## Mensajes del cliente
 
@@ -80,13 +99,24 @@ nominal. Sirven para responder si un fallo fue del controlador o del banco.
 |---|---|
 | `force` | Pone una señal en modo forzado con el valor dado |
 | `release` | Devuelve la señal a automático, con salto instantáneo |
-| `propagation` | Corta o restituye la propagación aguas abajo de una señal |
-| `degrade` | Activa una degradación del stream UDP |
-| `scenario` | Arranca o aborta un escenario |
+| `propagation` | Corta o restituye la propagación aguas abajo de una señal (`{signal, cut: bool}`) |
+| `degrade` | Activa una degradación del stream UDP (`{kind, value}` o `{kind, active}` según el tipo, ver [UDP](udp-encoder.md#9-notas-de-implementacion-fase-2-srcadaptersudpencoderts)) |
+| `scenario` | `{action: "start", id}` o `{action: "abort"}` |
 | `resume_from` | Pide los eventos posteriores a un número de secuencia |
 
 Todo mensaje del cliente lleva **actor**. No es opcional: con la demo compartiendo estado, un
 forzado anónimo hace el registro inservible como evidencia.
+
+### Kinds de `event` por área
+
+No hay una lista cerrada de `kind` (es el nombre del evento, texto libre), pero estos son los
+que emite hoy el servidor: `force`, `release`, `controller_write`, `propagation_cut`,
+`propagation_restored`, `degrade_loss`, `degrade_burst`, `degrade_duplicate`, `degrade_reorder`,
+`degrade_jitter`, `degrade_freeze`, `degrade_encoder_invalid`, `degrade_seq_jump`,
+`degrade_silence`, `assertion_result` (payload: `AssertionResult`, ver
+[observabilidad.md](../implementacion/observabilidad.md#aserciones)), `scenario_step`,
+`scenario_assert` (checkpoint contra el último `assertion_result` conocido),
+`scenario_finished`, `scenario_aborted`, `scenario_rejected`.
 
 !!! warning "El cliente pide, no decide"
     Un `force` es una petición. El instante que cuenta es aquel en que el simulador **aplica** el

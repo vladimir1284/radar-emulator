@@ -14,6 +14,8 @@ export const configSchema = {
     "transports",
     "signals",
     "blocks",
+    "assertions",
+    "scenarios",
   ],
   properties: {
     schema_version: { type: "integer", minimum: 1 },
@@ -112,6 +114,51 @@ export const configSchema = {
           type: { type: "string", minLength: 1 },
           rate_group: { type: "string", minLength: 1 },
           params: { type: "object" },
+        },
+      },
+    },
+    assertions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "description", "expect"],
+        properties: {
+          id: { type: "string", minLength: 1 },
+          description: { type: "string", minLength: 1 },
+          when: { type: "string", minLength: 1 },
+          expect: { type: "string", minLength: 1 },
+          within_ms: { type: "integer", exclusiveMinimum: 0 },
+          not_before_ms: { type: "integer", exclusiveMinimum: 0 },
+          stable_for_ms: { type: "integer", exclusiveMinimum: 0 },
+        },
+      },
+    },
+    scenarios: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "steps"],
+        properties: {
+          id: { type: "string", minLength: 1 },
+          description: { type: "string" },
+          steps: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["at_ms", "action"],
+              properties: {
+                at_ms: { type: "integer", minimum: 0 },
+                action: { enum: ["force", "release", "pulse", "assert"] },
+                signal: { type: "string", minLength: 1 },
+                value: { type: ["boolean", "number"] },
+                ms: { type: "integer", exclusiveMinimum: 0 },
+                id: { type: "string", minLength: 1 },
+              },
+            },
+          },
         },
       },
     },

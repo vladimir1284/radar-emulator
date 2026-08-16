@@ -227,10 +227,15 @@ export class Graph {
     return new Graph(sorted, tickMs / 1000, new Set(producedBy.keys()));
   }
 
-  // Todas las señales que este bloque lee, para validate.ts (paso 2:
-  // referencias) y para reportar errores con ruta legible.
+  // Todas las señales que este bloque lee o produce, para validate.ts
+  // (paso 2: referencias) y para reportar errores con ruta legible. Puede
+  // lanzar ExprSyntaxError si params trae una expresion mal formada.
   static readsFor(def: BlockDef): Set<string> {
     return readsOf(compileBlock(def));
+  }
+
+  static producesFor(def: BlockDef): string[] {
+    return producesOf(compileBlock(def));
   }
 
   evaluate(store: SignalStore): void {

@@ -1,22 +1,24 @@
 // Evaluador de expresiones seguro para condiciones de blocks (expression,
-// latch.set/reset, state_machine.when, axis.enable/reference/inhibit_*).
-// Deliberadamente NO usa eval()/Function(): la configuracion se escribe a
-// mano (esquema.md) pero sigue siendo entrada externa al proceso.
+// latch.set/reset, state_machine.when, axis.enable/reference/inhibit_*) y
+// de aserciones (assertions[].when/expect, fase 3). Deliberadamente NO usa
+// eval()/Function(): la configuracion se escribe a mano (esquema.md) pero
+// sigue siendo entrada externa al proceso.
 //
 // Gramatica (precedencia de menor a mayor):
 //   or := and ('or' and)*
 //   and := not ('and' not)*
 //   not := 'not' not | cmp
 //   cmp := atom (('>'|'>='|'<'|'<='|'=='|'!=') atom)?
-//   atom := number | 'rising' '(' ident ')' | ident | '(' or ')'
+//   atom := number | ('rising'|'falling') '(' ident ')' | ident | '(' or ')'
 //   ident := [a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)+
 
 export type CmpOp = ">" | ">=" | "<" | "<=" | "==" | "!=";
+export type EdgeDirection = "rising" | "falling";
 
 export type ExprNode =
   | { kind: "num"; value: number }
   | { kind: "ident"; name: string }
-  | { kind: "rising"; name: string }
+  | { kind: "edge"; direction: EdgeDirection; name: string }
   | { kind: "not"; arg: ExprNode }
   | { kind: "cmp"; op: CmpOp; left: ExprNode; right: ExprNode }
   | { kind: "and" | "or"; args: ExprNode[] };
@@ -158,21 +160,22 @@ class Parser {
       this.next();
       return inner;
     }
-    if (tok.type === "ident" && tok.text === "rising") {
+    if (tok.type === "ident" && (tok.text === "rising" || tok.text === "falling")) {
+      const direction = tok.text;
       this.next();
       if (this.peek().type !== "lparen") {
-        throw new ExprSyntaxError(`falta "(" tras "rising" en "${this.source}"`);
+        throw new ExprSyntaxError(`falta "(" tras "${direction}" en "${this.source}"`);
       }
       this.next();
       const arg = this.next();
       if (arg.type !== "ident" || !IDENT_RE.test(arg.text)) {
-        throw new ExprSyntaxError(`rising() espera un identificador de señal en "${this.source}"`);
+        throw new ExprSyntaxError(`${direction}() espera un identificador de señal en "${this.source}"`);
       }
       if (this.peek().type !== "rparen") {
-        throw new ExprSyntaxError(`falta ")" tras rising(${arg.text} en "${this.source}"`);
+        throw new ExprSyntaxError(`falta ")" tras ${direction}(${arg.text} en "${this.source}"`);
       }
       this.next();
-      return { kind: "rising", name: arg.text };
+      return { kind: "edge", direction, name: arg.text };
     }
     if (tok.type === "ident" && IDENT_RE.test(tok.text)) {
       this.next();
@@ -192,7 +195,7 @@ export function collectIdentifiers(node: ExprNode, out: Set<string> = new Set())
     case "num":
       break;
     case "ident":
-    case "rising":
+    case "edge":
       out.add(node.name);
       break;
     case "not":
@@ -225,8 +228,11 @@ export function evaluateExpr(node: ExprNode, ctx: ExprContext): boolean | number
       return node.value;
     case "ident":
       return ctx.current(node.name);
-    case "rising":
-      return !truthy(ctx.previous(node.name)) && truthy(ctx.current(node.name));
+    case "edge": {
+      const wasTrue = truthy(ctx.previous(node.name));
+      const isTrue = truthy(ctx.current(node.name));
+      return node.direction === "rising" ? !wasTrue && isTrue : wasTrue && !isTrue;
+    }
     case "not":
       return !truthy(evaluateExpr(node.arg, ctx));
     case "cmp": {

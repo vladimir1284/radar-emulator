@@ -1,4 +1,7 @@
 import type { RadarConfig, SignalDef } from "./types.js";
+import { Graph, AXIS_BLOCK_TYPE } from "../core/graph.js";
+import { AxisBlock } from "../core/axis.js";
+import { compileExpr, collectIdentifiers } from "../core/expr.js";
 
 export class ConfigValidationError extends Error {
   constructor(public readonly issues: string[]) {
@@ -108,11 +111,115 @@ export function validateConfig(config: RadarConfig): void {
   ];
   for (const [field, signalId] of encoderRefs) {
     if (signalId !== undefined && !signalIds.has(signalId)) {
-      issues.push(
-        `/transports/encoder_udp/${field}: "${signalId}" no existe en signals[]`,
-      );
+      issues.push(`/transports/encoder_udp/${field}: "${signalId}" no existe en signals[]`);
     }
   }
+
+  // Bloques: toda señal que un bloque lee o produce debe existir en
+  // signals[]. Sin esto, una referencia mal escrita no se detecta al cargar
+  // sino que revienta el proceso el primer tick que evalue ese bloque (bug
+  // real encontrado en fase 3, ver D-26).
+  const blockIds = new Set<string>();
+  config.blocks.forEach((block, i) => {
+    const path = `/blocks/${i}`;
+    if (blockIds.has(block.id)) {
+      issues.push(`${path}/id: "${block.id}" duplicado`);
+    }
+    blockIds.add(block.id);
+
+    try {
+      const axis = block.type === AXIS_BLOCK_TYPE ? new AxisBlock(block, config) : null;
+      const reads = axis ? axis.readsSignals() : Graph.readsFor(block);
+      const produces = axis ? axis.producedSignals() : Graph.producesFor(block);
+      for (const signal of reads) {
+        if (!signalIds.has(signal)) {
+          issues.push(`${path}: lee "${signal}", que no existe en signals[]`);
+        }
+      }
+      for (const signal of produces) {
+        if (!signalIds.has(signal)) {
+          issues.push(`${path}: produce "${signal}", que no existe en signals[]`);
+        }
+      }
+    } catch (e) {
+      issues.push(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
+  // Aserciones (fase 3): a lo sumo un campo de tiempo; "when" obligatorio
+  // salvo tipo "never" (ningun campo de tiempo); expresiones validas y sus
+  // señales existen.
+  const assertionIds = new Set<string>();
+  config.assertions.forEach((a, i) => {
+    const path = `/assertions/${i}`;
+    if (assertionIds.has(a.id)) {
+      issues.push(`${path}/id: "${a.id}" duplicado`);
+    }
+    assertionIds.add(a.id);
+
+    const timingFields = [a.within_ms, a.not_before_ms, a.stable_for_ms].filter((v) => v !== undefined);
+    if (timingFields.length > 1) {
+      issues.push(
+        `${path}: solo puede tener uno de within_ms/not_before_ms/stable_for_ms, tiene ${timingFields.length}`,
+      );
+    }
+    if (timingFields.length > 0 && !a.when) {
+      issues.push(`${path}/when: requerido cuando hay within_ms/not_before_ms/stable_for_ms`);
+    }
+
+    try {
+      const sources: string[] = [a.expect];
+      if (a.when) sources.push(a.when);
+      for (const src of sources) {
+        const ast = compileExpr(src);
+        for (const id of collectIdentifiers(ast)) {
+          if (!signalIds.has(id)) {
+            issues.push(`${path}: referencia "${id}", que no existe en signals[]`);
+          }
+        }
+      }
+    } catch (e) {
+      issues.push(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
+  // Escenarios (fase 3): cada paso referencia una señal existente y trae
+  // los campos que exige su "action"; los pasos "assert" referencian una
+  // asercion declarada.
+  const scenarioIds = new Set<string>();
+  config.scenarios.forEach((sc, i) => {
+    const scPath = `/scenarios/${i}`;
+    if (scenarioIds.has(sc.id)) {
+      issues.push(`${scPath}/id: "${sc.id}" duplicado`);
+    }
+    scenarioIds.add(sc.id);
+
+    sc.steps.forEach((step, j) => {
+      const path = `${scPath}/steps/${j}`;
+      if (step.signal && !signalIds.has(step.signal)) {
+        issues.push(`${path}/signal: "${step.signal}" no existe en signals[]`);
+      }
+      switch (step.action) {
+        case "force":
+          if (!step.signal) issues.push(`${path}: action "force" requiere "signal"`);
+          if (step.value === undefined) issues.push(`${path}: action "force" requiere "value"`);
+          break;
+        case "release":
+          if (!step.signal) issues.push(`${path}: action "release" requiere "signal"`);
+          break;
+        case "pulse":
+          if (!step.signal) issues.push(`${path}: action "pulse" requiere "signal"`);
+          if (step.ms === undefined) issues.push(`${path}: action "pulse" requiere "ms"`);
+          break;
+        case "assert":
+          if (!step.id) issues.push(`${path}: action "assert" requiere "id"`);
+          else if (!assertionIds.has(step.id)) {
+            issues.push(`${path}/id: "${step.id}" no existe en assertions[]`);
+          }
+          break;
+      }
+    });
+  });
 
   if (issues.length > 0) {
     throw new ConfigValidationError(issues);

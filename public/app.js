@@ -13,6 +13,8 @@ function actor() {
 }
 
 let signalDefs = [];
+let assertionDefs = [];
+let scenarioDefs = [];
 let latestState = { signals: {} };
 let lastSessionId = null;
 let ws;
@@ -46,11 +48,13 @@ function handleMessage(msg) {
       break;
     case "event":
       appendEvent(msg);
+      if (msg.kind === "assertion_result") renderAssertionResult(msg.payload);
       break;
     case "metrics":
       document.getElementById("link-metrics").textContent =
         `${msg.modbus_tx_per_s} transacciones Modbus/s · desviacion de tick ${msg.tick_deviation_ms} ms`;
       if (msg.degradation) renderDegradationPanel(msg.degradation);
+      if (msg.scenario) renderScenarioStatus(msg.scenario);
       break;
   }
 }
@@ -59,7 +63,11 @@ async function loadSignalDefs() {
   const res = await fetch("/api/config");
   const config = await res.json();
   signalDefs = config.signals;
+  assertionDefs = config.assertions ?? [];
+  scenarioDefs = config.scenarios ?? [];
   renderSignalList();
+  renderAssertionsList();
+  renderScenariosList();
 }
 
 function groupBySubsystem(defs) {
@@ -187,6 +195,7 @@ function renderSignalValues() {
     const modeBadge = document.createElement("span");
     modeBadge.className = `badge ${reading.m}`;
     modeBadge.textContent = reading.m;
+    if (reading.by) modeBadge.title = `forzada por ${reading.by}`;
     modeCell.appendChild(modeBadge);
 
     const qualityCell = row.querySelector(".quality-cell");
@@ -250,6 +259,63 @@ for (const btn of document.querySelectorAll("[data-degrade-toggle]")) {
     send({ type: "degrade", actor: actor(), kind, active: !active });
   });
 }
+
+// Panel de aserciones (fase 3, D-14: el simulador decide pasa/falla, la
+// interfaz solo muestra el resultado que ya llego resuelto).
+function renderAssertionsList() {
+  const container = document.getElementById("assertions-list");
+  container.innerHTML = "";
+  for (const a of assertionDefs) {
+    const row = document.createElement("div");
+    row.className = "assertion-row";
+    row.dataset.assertionId = a.id;
+    row.innerHTML =
+      `<div><span class="assertion-desc">${a.description}</span><span class="assertion-id">${a.id}</span></div>` +
+      `<div class="assertion-outcome"><span class="badge pending">pendiente</span></div>`;
+    container.appendChild(row);
+  }
+}
+
+function renderAssertionResult(result) {
+  const row = document.querySelector(`.assertion-row[data-assertion-id="${CSS.escape(result.assertionId)}"]`);
+  if (!row) return;
+  const cell = row.querySelector(".assertion-outcome");
+  const marginText = result.marginMs === null ? "" : `<span class="assertion-margin">margen ${result.marginMs} ms</span>`;
+  cell.innerHTML = `<span class="badge ${result.outcome}">${result.outcome}</span>${marginText}`;
+}
+
+// Panel de escenarios (fase 3). El estado de "en curso" lo confirma el
+// servidor por "metrics" (1Hz), mismo criterio que el panel de degradaciones.
+function renderScenariosList() {
+  const container = document.getElementById("scenarios-list");
+  container.innerHTML = "";
+  for (const sc of scenarioDefs) {
+    const row = document.createElement("div");
+    row.className = "scenario-row";
+    row.dataset.scenarioId = sc.id;
+    const label = document.createElement("div");
+    label.innerHTML = `${sc.id}<span class="scenario-desc">${sc.description ?? ""}</span>`;
+    const startBtn = document.createElement("button");
+    startBtn.textContent = "iniciar";
+    startBtn.onclick = () => send({ type: "scenario", actor: actor(), action: "start", id: sc.id });
+    row.append(label, startBtn);
+    container.appendChild(row);
+  }
+}
+
+function renderScenarioStatus(scenario) {
+  const statusEl = document.getElementById("scenario-status");
+  statusEl.classList.toggle("running", scenario.running);
+  statusEl.textContent = scenario.running ? `en curso: ${scenario.id}` : "ninguno en curso";
+  for (const btn of document.querySelectorAll("#scenarios-list button")) {
+    btn.disabled = scenario.running;
+  }
+  document.getElementById("scenario-abort-btn").disabled = !scenario.running;
+}
+
+document.getElementById("scenario-abort-btn").addEventListener("click", () => {
+  send({ type: "scenario", actor: actor(), action: "abort" });
+});
 
 document.getElementById("filter-input").addEventListener("input", renderSignalList);
 
