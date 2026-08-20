@@ -2361,8 +2361,8 @@
       "enabled": true
     },
     {
-      "id": "sys.spare_01",
-      "label": "Spare",
+      "id": "sys.system_on_ok_status",
+      "label": "System On Ok Status",
       "subsystem": "sys",
       "kind": "DI",
       "type": "bool",
@@ -2378,11 +2378,11 @@
       },
       "source_module": "ADAM 4055",
       "source_channel": "DI3",
-      "enabled": false
+      "enabled": true
     },
     {
-      "id": "sys.spare_02",
-      "label": "Spare",
+      "id": "sys.mdb_fan_ok_status",
+      "label": "MDB Fan Ok Status",
       "subsystem": "sys",
       "kind": "DI",
       "type": "bool",
@@ -2398,11 +2398,11 @@
       },
       "source_module": "ADAM 4055",
       "source_channel": "DI4",
-      "enabled": false
+      "enabled": true
     },
     {
-      "id": "sys.spare_03",
-      "label": "Spare",
+      "id": "sys.remote_mode_ok_status",
+      "label": "Remote Mode Ok Status",
       "subsystem": "sys",
       "kind": "DI",
       "type": "bool",
@@ -2418,11 +2418,11 @@
       },
       "source_module": "ADAM 4055",
       "source_channel": "DI5",
-      "enabled": false
+      "enabled": true
     },
     {
-      "id": "sys.spare_04",
-      "label": "Spare",
+      "id": "sys.rx_cabinet_fan_ok_status",
+      "label": "Rx Cabinet Fan Ok Status",
       "subsystem": "sys",
       "kind": "DI",
       "type": "bool",
@@ -2438,11 +2438,11 @@
       },
       "source_module": "ADAM 4055",
       "source_channel": "DI6",
-      "enabled": false
+      "enabled": true
     },
     {
-      "id": "sys.spare_05",
-      "label": "Spare",
+      "id": "sys.au_cabinet_fan_ok_status",
+      "label": "AU Cabinet Fan Ok Status",
       "subsystem": "sys",
       "kind": "DI",
       "type": "bool",
@@ -2458,7 +2458,7 @@
       },
       "source_module": "ADAM 4055",
       "source_channel": "DI7",
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "sys.turn_on_radar_conmand",
@@ -2699,9 +2699,117 @@
       "mode": "auto",
       "modbus": null,
       "enabled": true
+    },
+    {
+      "id": "sys.radar_on_status",
+      "label": "Radar On Status",
+      "subsystem": "sys",
+      "kind": "VIRT",
+      "type": "bool",
+      "direction": "internal",
+      "initial": false,
+      "mode": "auto",
+      "modbus": null,
+      "enabled": true
+    },
+    {
+      "id": "sys.radar_fault_status",
+      "label": "Radar Fault Status",
+      "subsystem": "sys",
+      "kind": "VIRT",
+      "type": "bool",
+      "direction": "internal",
+      "initial": false,
+      "mode": "auto",
+      "modbus": null,
+      "enabled": true
+    },
+    {
+      "id": "sys.cabinet_fans_ok",
+      "label": "Cabinet Fans Ok (Tx/Rx/AU)",
+      "subsystem": "sys",
+      "kind": "VIRT",
+      "type": "bool",
+      "direction": "internal",
+      "initial": false,
+      "mode": "auto",
+      "modbus": null,
+      "enabled": true
     }
   ],
   "blocks": [
+    {
+      "id": "sys.fsm",
+      "type": "state_machine",
+      "params": {
+        "initial": "OFF",
+        "states": [
+          "OFF",
+          "STARTING",
+          "ON",
+          "FAULT"
+        ],
+        "transitions": [
+          {
+            "from": "OFF",
+            "to": "STARTING",
+            "when": "rising(sys.turn_on_radar_conmand) and sys.standby_system_ok_status and sys.line_parameters_ok_status and sys.environment_ok_status and sys.remote_mode_ok_status",
+            "_note": "Rutina 1 paso 1 (ControlRoutines.md): status 1,2,3,6 correctos antes de encender"
+          },
+          {
+            "from": "STARTING",
+            "to": "ON",
+            "when": "sys.system_on_ok_status and sys.mdb_fan_ok_status",
+            "_note": "Rutina 1 paso 2: tras encendido, chequear activacion de status 4,5"
+          },
+          {
+            "from": "*",
+            "to": "OFF",
+            "when": "sys.turn_off_radar_conmand",
+            "priority": 100
+          },
+          {
+            "from": ["STARTING", "ON"],
+            "to": "FAULT",
+            "when": "not (sys.line_parameters_ok_status and sys.environment_ok_status)",
+            "priority": 90,
+            "_note": "Rutina 1 paso 3: deben mantenerse correctas status 2,3. from acotado a STARTING/ON (no '*', ver D-24) para no disparar desde OFF en el primer tick"
+          },
+          {
+            "from": "FAULT",
+            "to": "STARTING",
+            "when": "sys.standby_system_ok_status and sys.line_parameters_ok_status and sys.environment_ok_status and sys.remote_mode_ok_status",
+            "_note": "PENDIENTE: ControlRoutines.md no especifica recuperacion desde FAULT; se infiere simetrica al paso 1. Confirmar con el experto"
+          }
+        ],
+        "outputs": {
+          "OFF": {
+            "sys.radar_on_status": false,
+            "sys.radar_fault_status": false
+          },
+          "STARTING": {
+            "sys.radar_on_status": true,
+            "sys.radar_fault_status": false
+          },
+          "ON": {
+            "sys.radar_on_status": true,
+            "sys.radar_fault_status": false
+          },
+          "FAULT": {
+            "sys.radar_fault_status": true
+          }
+        }
+      }
+    },
+    {
+      "id": "sys.cabinet_fans",
+      "type": "expression",
+      "params": {
+        "output": "sys.cabinet_fans_ok",
+        "expr": "tx.cb_blower_ok_status and tx.magnetron_blower_ok_status and sys.rx_cabinet_fan_ok_status and sys.au_cabinet_fan_ok_status",
+        "_note": "Rutina 1 paso 3.3 (ControlRoutines.md): chequeo final Tx/Rx/AU Cabinet Fan Ok Status. PENDIENTE-27/28 (docs/alcance/pendientes.md): el 'Tx Cabinet Fan Ok Status' del ICD compartido se mapea aqui a tx.cb_blower_ok_status + tx.magnetron_blower_ok_status (ya implementados) porque ADAM 4024/DI0-2 de tx ya estan ocupados por otras senales (tx.mps_fault_status/fps_ok_status/blowers_on_status) sin relacion con esa tabla del ICD -- discrepancia preexistente entre la semilla y el documento, no introducida por este cambio. 'Rx/AU Cabinet Fan Ok Status' no tenian canal en las tablas del ICD para Rx/Antena; se asumio que ocupan sys.rx_cabinet_fan_ok_status/sys.au_cabinet_fan_ok_status (DI6/DI7 de sys/ADAM 4055, los 'canales libres' que menciona el experto). Confirmar ambas asunciones."
+      }
+    },
     {
       "id": "tx.fsm",
       "type": "state_machine",

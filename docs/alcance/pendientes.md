@@ -178,6 +178,34 @@ afecta al código —el validador comprueba que `signal.subsystem` exista en `su
 cual sea el nombre— pero la documentación y el código deben usar el mismo nombre. Confirmar cuál
 es el correcto y corregir el otro lado.
 
+### PEND-27 · Canal físico de "Rx/AU Cabinet Fan Ok Status" (Rutina 1)
+
+`ControlRoutines.md` (feedback de expertos) añade, en el paso 3.3 de la Rutina 1 (Encendido
+General), el chequeo de `Tx/Rx/AU Cabinet Fan Ok Status`. Las Tablas 3 (Rx) y 4/5/6 (Antena) del
+mismo documento no traen fila para esa señal en sus propios módulos, y el texto bajo la Tabla 1
+solo dice que se usan "canales libres" sin nombrar cuáles.
+
+La semilla asume que son `sys.rx_cabinet_fan_ok_status` y `sys.au_cabinet_fan_ok_status`, en los
+DI6/DI7 de `sys`/ADAM 4055 — los dos únicos DI que la Tabla 1 lista como "Spare". Es la lectura
+más literal de "canales libres", pero la propia Tabla 1 sigue etiquetando esas dos filas como
+"Spare", no como Rx/AU Cabinet Fan. Confirmar con el experto antes de dar el mapeo por bueno.
+
+### PEND-28 · `tx`/ADAM 4024 DI0-2 no coincide con la Tabla 2 de `ControlRoutines.md`
+
+La Tabla 2 (Tx) de `ControlRoutines.md` — que el experto revisó sin observaciones, es decir, la
+da por ICD válido — lista en ADAM 4024: DI0 `Tx Cabinet Fan Ok Status`, DI1 `Filament PS Ok
+Status`, DI2 `MPS Ok Status`. La semilla (`config/rd100s.seed.json`, unit_id 2) ya tenía esos tres
+canales ocupados desde antes de este feedback por `tx.mps_fault_status`, `tx.fps_ok_status` y
+`tx.blowers_on_status` — señales sin relación con esos nombres, ninguna referenciada por ningún
+bloque todavía.
+
+Por eso el chequeo de "Tx Cabinet Fan Ok Status" del paso 3.3 de la Rutina 1 (ver `sys.cabinet_fans`
+en `blocks`) se mapeó en su lugar a `tx.cb_blower_ok_status` + `tx.magnetron_blower_ok_status`
+(ADAM 4051, ya implementados y usados en `tx.interlocks`) por ser semánticamente el mismo tipo de
+señal. Esta discrepancia entre semilla y documento es un hecho verificado, no una inferencia; no
+se resolvió de oficio porque tocar los DI0-2 de la unit 2 arriesgaba pisar señales ya nombradas
+sin confirmar antes con el equipo qué debía prevalecer.
+
 ### PEND-26 · Semántica del motor de aserciones sin confirmar
 
 [D-26](decisiones.md#d-26-semantica-del-motor-de-aserciones-invencion-mas-especulativa-que-d-18-a-d-24)

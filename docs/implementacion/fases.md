@@ -83,6 +83,7 @@ descarga como fichero con todas las transacciones Modbus marcadas en tiempo.
 | Propagación | Corte y restitución por señal, visible en la interfaz |
 | Transmisor | Cadena de interlock, secuencia de encendido, temporizador de caldeo |
 | Ejes | Bloque `axis` y lazo de 10 ms |
+| Encendido general (sys) | `sys.fsm`: gating por Standby/Line Parameters/Environment/Remote Mode, chequeo post-encendido de System On/MDB Fan, y agregado de Cabinet Fans Ok Tx/Rx/AU (feedback de expertos en `ControlRoutines.md`, ver PEND-27/28) |
 | UDP | Emisor `RD100S-ENC-UDP v1` y tabla completa de degradaciones |
 
 !!! warning "Resolver antes de escribir el primer bloque"
