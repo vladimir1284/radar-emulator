@@ -748,6 +748,39 @@
       "enabled": true
     },
     {
+      "id": "tx.tx_reflected_power_sample",
+      "label": "Tx Reflected Power Sample",
+      "subsystem": "tx",
+      "kind": "AI",
+      "type": "float",
+      "direction": "to_controller",
+      "initial": 0.0,
+      "mode": "auto",
+      "units": "kW",
+      "range": [
+        0.0,
+        350.0
+      ],
+      "raw": {
+        "encoding": "int16",
+        "raw_range": [
+          0,
+          65535
+        ],
+        "note": "PENDIENTE: confirmar codificacion y rango crudo del modulo real (PEND-29: modulo/unit_id sin confirmar en inventario real)"
+      },
+      "modbus": {
+        "unit_id": 5,
+        "space": "holding",
+        "address": 0,
+        "conventional": "400001",
+        "access": "r"
+      },
+      "source_module": "ADAM 4117 (PEND-29: modulo adicional sin confirmar)",
+      "source_channel": "AI0",
+      "enabled": true
+    },
+    {
       "id": "tx.magnetron_peak_current_sample",
       "label": "Magnetron Peak Current Sample",
       "subsystem": "tx",

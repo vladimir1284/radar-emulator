@@ -206,6 +206,19 @@ señal. Esta discrepancia entre semilla y documento es un hecho verificado, no u
 se resolvió de oficio porque tocar los DI0-2 de la unit 2 arriesgaba pisar señales ya nombradas
 sin confirmar antes con el equipo qué debía prevalecer.
 
+### PEND-29 · `tx.tx_reflected_power_sample` — módulo y unit ID inventados
+
+RAVIS/B7 (`docs/diseno/inventario-ui.md` de `lamula-rcp`) pide Reverse Power junto a Forward Power
+(`tx.tx_peak_power_sample`, ADAM 4117, unit_id 4) para calcular VSWR. El módulo ADAM 4117 de `tx`
+ya tiene sus 8 canales (AI0-AI7) ocupados — no hay canal libre para un sensor nuevo.
+
+Se agregó `tx.tx_reflected_power_sample` en un módulo nuevo, `unit_id 5` (siguiente libre en la
+serie de `tx`: 1=ADAM 4051, 2=ADAM 4024, 3=ADAM 4069, 4=ADAM 4117), holding, address 0. **Ningún
+dato real respalda esto**: ni la existencia de un sensor de potencia reflejada en el hardware, ni
+el módulo, ni el unit ID. Mismo criterio que `initial`/`mode: auto` de `tx_peak_power_sample`, sin
+bloque de simulación que lo vincule a un valor físico. Confirmar con el equipo antes de dar este
+mapeo por bueno, igual que PEND-07/PEND-08.
+
 ### PEND-26 · Semántica del motor de aserciones sin confirmar
 
 [D-26](decisiones.md#d-26-semantica-del-motor-de-aserciones-invencion-mas-especulativa-que-d-18-a-d-24)
